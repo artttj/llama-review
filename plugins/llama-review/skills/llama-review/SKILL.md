@@ -327,6 +327,42 @@ Next Steps rules:
 - If no findings in a tier, write "None"
 - Always include at least one actionable checkbox in Critical or Needs Attention if those tiers have findings
 
+### Step 12: Offer Fix Actions
+
+After rendering the report, ask the user how they want to act on findings. Use `AskUserQuestion` with up to 4 options:
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "How do you want to handle the <N> findings?",
+    header: "Fix actions",
+    multiSelect: false,
+    options: [
+      { label: "Fix critical inline", description: "Fix CRITICAL findings directly in the current session, one at a time" },
+      { label: "Run specialist agents", description: "Dispatch subagents (security-reviewer, code-reviewer, tdd-guide) to fix findings in parallel" },
+      { label: "Fix all inline", description: "Fix every finding (critical + needs attention) directly, sequentially" },
+      { label: "Review only", description: "No fixes — I'll handle them separately" }
+    ]
+  }]
+})
+```
+
+Adjust the options based on what was found:
+- If only CRITICAL findings: options 1 and 2 focus on critical only
+- If only MEDIUM/LOW findings: offer "Fix inline" and "Review only"
+- If no findings at all: skip Step 12 entirely, just say "No findings to act on"
+
+**When the user picks "Fix critical inline" or "Fix all inline":**
+- Work through findings one at a time, starting with the highest severity
+- For each finding: read the file, make the minimal fix, verify it doesn't break related code
+- After each fix, ask: "Fixed <file>. Continue to next finding?" (unless there's only one)
+
+**When the user picks "Run specialist agents":**
+- Dispatch the appropriate subagent for each finding type in parallel
+- Map findings to agents: security → `security-reviewer`, bugs → `code-reviewer`, tests → `tdd-guide`, dead code → `refactor-cleaner`, performance → `performance-optimizer`
+- Pass each agent the specific file(s) and finding description so it knows what to fix
+- After agents complete, summarize what was fixed
+
 If `$ARGUMENTS` contains `--jira`:
 
 ```
@@ -351,3 +387,4 @@ If `$ARGUMENTS` contains `--jira`:
 13. Classify failures: timeout, model-not-found, network, unexpected-output.
 14. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.
 15. Apply diff-size lane consolidation (Step 5). Small diffs get fewer model dispatches. Do not spin up 5 models for a 2-file change.
+16. After the report, offer interactive fix actions (Step 12). Let the user choose between fixing inline, running specialist subagents, or skipping fixes.

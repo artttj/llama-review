@@ -58,7 +58,7 @@ Override with `.llama-review.yml` in your project root. If no config file exists
 6. Dispatches parallel `ollama run <model> --nowordwrap --hidethinking` calls per lane
 7. Collects, merges, deduplicates, and ranks findings
 8. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers
-9. Suggests concrete next steps with subagent commands to fix findings
+9. Offers interactive fix actions: fix inline, run specialist subagents, or review only
 
 ## Requirements
 
