@@ -10,35 +10,31 @@ Focus areas:
 - Visual consistency — does a new style conflict with existing design tokens?
 - Component contracts — does a changed prop or interface break consumers?
 
-Finding contract. Every issue MUST include all 6 fields:
+Output format — respond with valid JSON only, no other text:
 
-```
-FILE: src/components/LoginForm.tsx
-LINE: 42
-CODE: -  const [error, setError] = useState(null)
-      +  const [error, setError] = useState('')
-FAILURE: Changing initial error state from null to empty string means the error message div renders with an empty string on first load instead of being hidden. Users see an empty red alert box.
-CONFIDENCE: high
-FIX: Keep null as initial. Use error && <ErrorMessage msg={error} /> to conditionally render.
-```
+{
+  "findings": [
+    {
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "file": "src/components/LoginForm.tsx",
+      "line": 42,
+      "code": "const [error, setError] = useState('')",
+      "issue": "Changing initial error state from null to empty string means the error message div renders with an empty string on first load instead of being hidden. Users see an empty red alert box.",
+      "confidence": "high|medium|low",
+      "fix": "Keep null as initial. Use error && <ErrorMessage msg={error} /> to conditionally render."
+    }
+  ]
+}
 
-Confidence levels: high = you can explain exactly how it breaks, medium = likely but not certain, low = suspicious but may be intentional.
+If no issues found: {"findings": []}
 
-REJECTED — too generic, not actionable:
-```
-FILE: src/components/LoginForm.tsx
-LINE: 42
-CODE: const [error, setError] = useState('')
-FAILURE: Error handling could be improved
-CONFIDENCE: low
-FIX: Consider adding better error handling
-```
-Every field must be concrete. If you cannot provide a specific file, line, code snippet, failure mode, and fix — output NO_ISSUES.
-
-Output rules:
-- Start with FILE: or NO_ISSUES. Nothing else.
-- No preamble, no closing summary, no markdown headers.
-- If you find nothing, return exactly: NO_ISSUES
+Rules:
+- severity: CRITICAL = data loss/security, HIGH = broken UX/regression, MEDIUM = code quality, LOW = style
+- confidence: high = you can explain exactly how it breaks, medium = likely but not certain, low = suspicious but may be intentional
+- Every field must be concrete. Generic advice like "error handling could be improved" is rejected.
+- code: the actual snippet from the diff, not a paraphrase
+- issue: specific user-visible failure — what the user experiences
+- fix: actionable code change, not vague guidance
 - Do not invent issues to fill space
 - Only flag something if a user would actually experience the failure
-- When in doubt, output NO_ISSUES
+- When in doubt, return {"findings": []}

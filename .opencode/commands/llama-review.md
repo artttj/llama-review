@@ -33,6 +33,8 @@ $ARGUMENTS
 | `--local` | Use local Ollama models instead of cloud |
 | `--effort <level>` | Review depth: `quick`, `normal`, `deep` (default: `normal`) |
 | `--jira` | Append a Jira-ready comment block to output |
+| `--init` | Save default config to .llama-review.yml |
+| `--json` | Write structured findings to llama-review-results.json |
 
 ## Default Models
 
@@ -50,18 +52,20 @@ Override with `.llama-review.yml` in your project root. If no config file exists
 
 ## Behavior
 
-1. Runs `git diff <target>...HEAD` to get changed files
-2. Loads `.llama-review.yml` config if present, falls back to defaults
-3. Auto-creates `.llama-review.yml` from defaults if missing (asks first)
-4. Prints a dispatch plan showing which model runs which lane
-5. Groups files into review lanes by file pattern, consolidates for small diffs (1-3 files → 1 model, 4-10 → 2 models, 11+ → all)
-6. Dispatches parallel Ollama HTTP API calls per lane
-7. Collects, merges, deduplicates, and ranks findings
-8. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers
-9. Offers interactive fix actions: fix inline, run specialist subagents, or review only
+1. Runs `git diff <target>...HEAD` to get changed files (respects `exclude` patterns from config)
+2. Auto-assigns files to review lanes by pattern matching
+3. Loads `.llama-review.yml` config if present, falls back to defaults
+4. Scales `num_predict` based on diff size (thinking models get higher budgets)
+5. Dispatches parallel Ollama HTTP API calls per lane with per-lane timeout and retry
+6. Handles thinking models (reads `message.content`, falls back to `message.thinking`)
+7. Parses structured JSON output, falls back to text extraction
+8. Merges, deduplicates, and ranks findings by severity
+9. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers
+10. Offers interactive fix actions: fix inline, run specialist subagents, or review only
 
 ## Requirements
 
+- `node` (18+) — bundled with Claude Code
 - `ollama` CLI installed and on PATH
 - Git repository
 - Optional: `.llama-review.yml` in project root for custom config

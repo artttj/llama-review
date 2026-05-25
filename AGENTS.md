@@ -4,22 +4,18 @@
 
 Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
 
-**Dispatch rule:** Every review lane dispatches via the Ollama HTTP API. Same command for cloud and local models. Agent tools all run on the same model — using them means every lane produces the same perspective, which defeats the multi-model purpose entirely. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column must say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
+**Dispatch rule:** Every review lane dispatches via the Ollama HTTP API through the `llama-review.mjs` script. The script handles dispatch, collection, parsing, merging, and report generation. Agent tools all run on the same model — using them means every lane produces the same perspective, which defeats the multi-model purpose entirely. A failed lane is honest. A lane on the wrong model is worse than no lane at all.
 
-**Command template:**
+**Command:**
 ```
-RESULT=$(jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response') && if [ -z "$RESULT" ]; then echo "LANE_ERROR: empty response from API" >&2; exit 1; fi && echo "$RESULT"
+node "<skill-base-dir>/llama-review.mjs" --target "<ref>" --effort <level> [other flags]
 ```
 
 **Critical rules:**
-- **No `&` in commands.** `run_in_background: true` handles parallelism. Adding `&` causes the shell to exit before curl completes — empty output on every lane.
-- **Validate output is non-empty.** Capture the result in a variable and check it before treating the lane as successful. An empty response is a lane failure.
-- **Timeout: 300000 (5 min) per lane.** Cloud models respond in 60-120s. 5 minutes gives headroom without hanging the review.
-- **`--max-time 240` on curl.** HTTP-level timeout shorter than the harness timeout so failures surface cleanly.
-- **`stream: true` for diffs >500KB per lane.** Prevents Ollama server-side timeouts on slow cloud models.
-- **Cap diffs at 1MB hard limit.** Models can't handle more. Warn at 100KB+.
-
-**Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with the Ollama HTTP API.
+- **Run the script.** Do not manually reconstruct dispatch logic.
+- **Zero Agent tools for review lanes.** All lanes use the Ollama API.
+- **The script handles:** thinking block extraction (content || thinking fallback), per-lane timeout and retry, diff-size token budgeting, JSON output parsing with text fallback, auto file-to-lane assignment, global exclude patterns.
+- **Cloud models:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. Trust the `:cloud` suffix and dispatch directly via the script.
 
 **Orchestration rule:** You orchestrate, not review. Do not add your own commentary on findings. Trust the models on their lane. Never second-guess NO_ISSUES.
 
@@ -38,6 +34,7 @@ RESULT=$(jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}
 - `--local` — use local Ollama models instead of cloud
 - `--jira` — append Jira-ready comment block
 - `--init` — save default config without prompting
+- `--json` — write structured findings to llama-review-results.json
 
 ### Default cloud models
 
@@ -53,19 +50,14 @@ Override with `.llama-review.yml` in project root.
 
 ### Workflow
 
-1. Pre-flight: check `ollama` is on PATH. Validate target ref. Do NOT run `ollama list` in cloud mode.
-2. Load config from `.llama-review.yml` or defaults. Offer to save if missing.
-3. Print dispatch plan with model, type, effort per lane.
-4. Group changed files into lanes by pattern. Apply diff-size consolidation (1-3 files → 1 model, 4-10 → 2 models, 11+ → all).
-5. Build prompts from templates, append filtered diffs (20K char limit per lane).
-6. Dispatch ALL lanes as parallel Ollama HTTP API calls in a single message.
-7. Collect results. Strip thinking blocks (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax). Parse `FILE:` or `NO_ISSUES` format. Apply fallback regex extraction if format doesn't match.
-8. Merge, deduplicate by root cause, rank into Critical / Needs Attention / Noted.
-9. Validate against finding contract (FILE, LINE, CODE, FAILURE, CONFIDENCE, FIX). Discard generic advice.
-10. Output report with Models Used table, findings, suggested test commands, PR summary, next steps.
+1. Parse arguments from `$ARGUMENTS`.
+2. Run `llama-review.mjs` via Bash with parsed arguments.
+3. Present the report output to the user.
+4. Offer interactive fix actions (AskUserQuestion).
 
 ### Failure handling
 
-- API call fails → mark lane as Failed, report error honestly. Do NOT retry with a different model or Agent specialists.
-- Timeout (5 min) → mark lane as "Timed out", continue.
-- Unexpected output format → strip thinking blocks, apply fallback regex extraction (Step 8), then mark as "Failed: unexpected output format" if still unparseable.
+- Script exit code 2 = critical findings found
+- Script exit code 1 = fatal error (report error to user)
+- Script exit code 0 = no critical findings
+- Failed lanes are reported in the output table — do not retry manually.

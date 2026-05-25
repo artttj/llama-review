@@ -55,13 +55,20 @@ Requires the `ollama` CLI on PATH. On first run without a config file, llama-rev
 /llama-review --jira                                # append a Jira comment block
 ```
 
-The skill detects changed files with `git diff`, groups them into review lanes by file pattern, dispatches parallel Ollama HTTP API calls, then merges and ranks the findings. Before dispatching, it prints a plan showing which model runs which lane.
+The `llama-review.mjs` script handles the full pipeline: detects changed files with `git diff`, applies exclude patterns, auto-assigns files to lanes by pattern, scales token budgets by diff size, dispatches parallel Ollama API calls with per-lane timeout and retry, handles thinking model output (falls back to `message.thinking` when `message.content` is empty), parses structured JSON output with text fallback, then merges and ranks the findings.
 
 ## Configuration
 
 Drop a `.llama-review.yml` in your project root:
 
 ```yaml
+# Global exclude patterns — strip from diff before dispatch
+exclude:
+  - "packages/exercises/src/data/exercises/**"
+  - "**/seed.sql"
+  - "**/messages.js"
+  - "**/messages.po"
+
 models:
   frontend: "qwen3.5:cloud"
   backend: "glm-5.1:cloud"
@@ -74,13 +81,27 @@ effort:
   normal: 32000
   deep: 64000
 
-local: false  # set to true to use local models (strips :cloud suffix)
+local: false
 
+# Per-lane overrides
+lane_config:
+  backend:
+    timeout: 240    # seconds
+    retries: 1
+    thinking: true  # increase num_predict for reasoning models
+  security:
+    timeout: 180
+    retries: 1
+    thinking: true
+
+# Custom lanes
 lanes:
-  magento:
-    files: "app/code/**, etc/**/*.xml"
-    focus: "DI mistakes, plugin order, cache config"
+  infra:
+    files: "terraform/**, docker/**, .github/**, k8s/**"
+    focus: "misconfigured resources, missing secrets, unsafe defaults"
     model: "kimi-k2.6:cloud"
+    timeout: 180
+    retries: 1
 ```
 
 Set a lane's model to `false` to disable it. Custom lanes extend the built-in ones.
@@ -104,11 +125,11 @@ For example, `.llama-review/prompts/security.md` replaces the built-in security 
 | tests | `*.test.*, *_test.*, *.spec.*, tests/, __tests__/, *.cy.*, *.e2e.*, *.stories.*` | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
 | simplify | all files | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
-Each lane only gets files matching its patterns. Security and simplify always get the full diff. Empty lanes are skipped.
+Each lane only gets files matching its patterns. Security and simplify always get the full diff. Empty lanes are skipped. Files are auto-assigned by the script — no manual categorization needed.
 
 ## Local models
 
-Pass `--local` to use local Ollama models instead of cloud. The skill strips `:cloud` suffixes and verifies each local model is available via `ollama list`. Missing models are skipped with a warning.
+Pass `--local` to use local Ollama models instead of cloud. The script strips `:cloud` suffixes and verifies each local model is available via `ollama list`. Missing models are skipped with a warning.
 
 **Note:** Cloud models (with `:cloud` suffix) are dispatched via the Ollama HTTP API and do NOT appear in `ollama list` output. `ollama list` only shows locally pulled models. Cloud model availability is validated at dispatch time — if a cloud model is unavailable, the lane fails and reports the error honestly.
 
@@ -125,6 +146,7 @@ After editing the skill, sync these files in order:
 2. `SKILL.md` (root) — copy from plugin version
 3. `AGENTS.md` — dispatch rules and failure handling (keep timeouts and command template in sync)
 4. `commands/llama-review.md`, `plugins/llama-review/commands/llama-review.md`, `.opencode/commands/llama-review.md` — command files (keep all three identical)
+5. `llama-review.mjs`, `plugins/llama-review/skills/llama-review/llama-review.mjs` — keep both copies identical
 
 Version numbers live in two places: `plugins/llama-review/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Bump both together.
 

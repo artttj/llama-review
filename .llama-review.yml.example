@@ -8,6 +8,16 @@
 # Use --local flag to switch to local models, or set local: true below.
 #
 # Set a lane to false to disable it.
+
+# Global exclude patterns — files matching these are stripped from the diff
+# before dispatching to any lane. Use glob patterns.
+exclude:
+  # - "packages/exercises/src/data/exercises/**"
+  # - "**/seed.sql"
+  # - "**/messages.js"
+  # - "**/messages.po"
+  # - "**/catalog-sync.json"
+
 models:
   frontend: "qwen3.5:cloud"
   backend: "glm-5.1:cloud"
@@ -29,11 +39,34 @@ effort:
 #   devstral:24b — agentic coding, good for backend
 local: false
 
+# Per-lane overrides. Options: timeout (seconds), retries (0-3),
+# thinking (true = increase num_predict for reasoning models), num_predict (override token budget).
+lane_config:
+  frontend:
+    timeout: 180
+    retries: 1
+  backend:
+    timeout: 240
+    retries: 1
+    thinking: true
+  security:
+    timeout: 180
+    retries: 1
+    thinking: true
+  tests:
+    timeout: 120
+    retries: 1
+  simplify:
+    timeout: 120
+    retries: 0
+
 # Custom review lanes extend the built-in defaults.
 # Built-in lanes: frontend, backend, security, tests, simplify.
 # To disable a built-in lane, set its model to false above.
 lanes:
-#  magento:
-#    files: "app/code/**, etc/**/*.xml, Plugin/**, Observer/**"
-#    focus: "DI mistakes, plugin sort order, cache scope config, setup patches"
+#  infra:
+#    files: "terraform/**, docker/**, .github/**, k8s/**"
+#    focus: "misconfigured resources, missing secrets, unsafe defaults"
 #    model: "kimi-k2.6:cloud"
+#    timeout: 180
+#    retries: 1

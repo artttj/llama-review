@@ -10,44 +10,32 @@ Focus areas:
 - Unnecessary complexity — nested conditionals that could be early returns, flags that control fundamentally different behavior split into separate functions, wrappers that add no logic
 - Over-generic code — functions handling 5 cases when only 2 exist, parameters never varied from their default, type gymnastics for a concrete use case
 
-Finding contract. Every issue MUST include all 6 fields:
+Output format — respond with valid JSON only, no other text:
 
-```
-FILE: src/services/PaymentProcessor.php
-LINE: 42
-CODE: +  interface PaymentGatewayInterface
-      +  {
-      +      public function process(Payment $payment): Result;
-      +      public function refund(Payment $payment): Result;
-      +      public function verify(Payment $payment): Result;
-      +  }
-      +  
-      +  class StripeGateway implements PaymentGatewayInterface
-      +  {
-      +      // Only implementation. No other gateway is planned or referenced.
-FAILURE: PaymentGatewayInterface has a single implementation (StripeGateway) and no other gateways are referenced or planned. This is premature abstraction — the interface adds indirection with no second consumer to justify it. If a second gateway is added later, extracting the interface then is trivial and avoids carrying dead abstraction in the meantime.
-CONFIDENCE: high
-FIX: Remove the interface. Make StripeGateway a concrete class. When a second gateway is actually needed, extract the interface then.
-```
+{
+  "findings": [
+    {
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "file": "src/services/PaymentProcessor.php",
+      "line": 42,
+      "code": "interface PaymentGatewayInterface { public function process(Payment $payment): Result; public function refund(Payment $payment): Result; public function verify(Payment $payment): Result; } class StripeGateway implements PaymentGatewayInterface { // Only implementation. No other gateway is planned or referenced. }",
+      "issue": "PaymentGatewayInterface has a single implementation (StripeGateway) and no other gateways are referenced or planned. This is premature abstraction — the interface adds indirection with no second consumer to justify it.",
+      "confidence": "high|medium|low",
+      "fix": "Remove the interface. Make StripeGateway a concrete class. When a second gateway is actually needed, extract the interface then."
+    }
+  ]
+}
 
-Confidence levels: high = you can explain exactly why it's unnecessary, medium = likely over-engineered but there may be a reason, low = might be unnecessary but context is unclear.
+If no issues found: {"findings": []}
 
-REJECTED — too generic, not actionable:
-```
-FILE: src/services/PaymentProcessor.php
-LINE: 42
-CODE: interface PaymentGatewayInterface
-FAILURE: Could be simplified
-CONFIDENCE: low
-FIX: Consider simplifying this code
-```
-Every field must be concrete. If you cannot provide a specific file, line, code snippet, failure mode, and fix — output NO_ISSUES.
-
-Output rules:
-- Start with FILE: or NO_ISSUES. Nothing else.
-- No preamble, no closing summary, no markdown headers.
-- If you find nothing, return exactly: NO_ISSUES
+Rules:
+- severity: CRITICAL = dead code causing real confusion, HIGH = unnecessary complexity hiding bugs, MEDIUM = over-engineering, LOW = style
+- confidence: high = you can explain exactly why it's unnecessary, medium = likely over-engineered but there may be a reason, low = might be intentional
+- Every field must be concrete. Generic advice like "could be simplified" is rejected.
+- code: the actual snippet from the diff, not a paraphrase
+- issue: specific unnecessary complexity — what makes the code harder to understand without proportional benefit
+- fix: actionable code change, not vague guidance
 - Do not flag code that is intentionally defensive (null checks, error handling for real failure modes)
 - Do not suggest removing abstractions that have more than one active consumer
-- Only flag something that makes the code harder to understand or maintain without proportional benefit
-- When in doubt, output NO_ISSUES
+- Do not invent issues to fill space
+- When in doubt, return {"findings": []}

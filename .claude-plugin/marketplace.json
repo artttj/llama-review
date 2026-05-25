@@ -8,7 +8,7 @@
   },
   "metadata": {
     "description": "Multi-model code review. Different models, different strengths, one report.",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "pluginRoot": "./plugins"
   },
   "plugins": [
@@ -16,7 +16,7 @@
       "name": "llama-review",
       "source": "./plugins/llama-review",
       "description": "Run parallel code reviews through Ollama models, each assigned to the domain they're strongest at. Merges findings into one prioritized report.",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": {
         "name": "Artem Iagovdik",
         "email": "artyom.yagovdik@gmail.com",

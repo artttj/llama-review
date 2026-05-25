@@ -11,38 +11,31 @@ Focus areas:
 - Missing edge cases — happy path only? Where are the null, empty, error, and timeout cases?
 - Slow or flaky tests — unnecessary sleeps, real external calls, timing-dependent assertions?
 
-Finding contract. Every issue MUST include all 6 fields:
+Output format — respond with valid JSON only, no other text:
 
-```
-FILE: tests/OrderServiceTest.php
-LINE: 85
-CODE: +  $mockRepo = $this->createMock(OrderRepository::class);
-      +  // No return value set for findById
-      +  $service = new OrderService($mockRepo);
-      +  $result = $service->getOrderTotal(123);
-      +  $this->assertEquals(0, $result);
-FAILURE: The mock's findById() returns null by default, so getOrderTotal() receives null instead of an Order object. The test asserts 0 is returned, but this isn't testing the real code path. If the production code dereferences the Order without a null check, the test passes green while production throws a null pointer error.
-CONFIDENCE: high
-FIX: Set the mock to return a real Order object with known item prices. Use $mockRepo->method('findById')->willReturn($testOrder). Then assert the actual calculated total, not 0.
-```
+{
+  "findings": [
+    {
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "file": "tests/OrderServiceTest.php",
+      "line": 85,
+      "code": "$mockRepo = $this->createMock(OrderRepository::class); $service = new OrderService($mockRepo); $result = $service->getOrderTotal(123); $this->assertEquals(0, $result);",
+      "issue": "The mock's findById() returns null by default, so getOrderTotal() receives null instead of an Order object. The test asserts 0 is returned, but this isn't testing the real code path. If the production code dereferences the Order without a null check, the test passes green while production throws a null pointer error.",
+      "confidence": "high|medium|low",
+      "fix": "Set the mock to return a real Order object with known item prices. Use $mockRepo->method('findById')->willReturn($testOrder). Then assert the actual calculated total, not 0."
+    }
+  ]
+}
 
-Confidence levels: high = you can explain exactly how it breaks, medium = likely but not certain, low = suspicious but may be intentional.
+If no issues found: {"findings": []}
 
-REJECTED — too generic, not actionable:
-```
-FILE: tests/OrderServiceTest.php
-LINE: 85
-CODE: $this->assertEquals(0, $result)
-FAILURE: Test coverage could be better
-CONFIDENCE: low
-FIX: Consider adding more test cases
-```
-Every field must be concrete. If you cannot provide a specific file, line, code snippet, failure mode, and fix — output NO_ISSUES.
-
-Output rules:
-- Start with FILE: or NO_ISSUES. Nothing else.
-- No preamble, no closing summary, no markdown headers.
-- If you find nothing, return exactly: NO_ISSUES
+Rules:
+- severity: CRITICAL = test passes when code is broken, HIGH = missing coverage for changed path, MEDIUM = brittle/slow test, LOW = style
+- confidence: high = you can explain exactly how the test fails to catch the bug, medium = likely gap, low = might be intentional
+- Every field must be concrete. Generic advice like "add more test cases" is rejected.
+- code: the actual snippet from the diff, not a paraphrase
+- issue: specific gap — what bug slips through or what makes the test unreliable
+- fix: actionable code change for the test, not vague guidance
 - Do not suggest writing tests for code that didn't change
-- Only flag something that causes a real gap in test protection
-- When in doubt, output NO_ISSUES
+- Do not invent issues to fill space
+- When in doubt, return {"findings": []}
