@@ -54,7 +54,7 @@ Override with `.llama-review.yml` in your project root. If no config file exists
 2. Loads `.llama-review.yml` config if present, falls back to defaults
 3. Auto-creates `.llama-review.yml` from defaults if missing (asks first)
 4. Prints a dispatch plan showing which model runs which lane
-5. Groups files into review lanes by file pattern
+5. Groups files into review lanes by file pattern, consolidates for small diffs (1-3 files → 1 model, 4-10 → 2 models, 11+ → all)
 6. Dispatches parallel `ollama run <model> --nowordwrap --hidethinking` calls per lane
 7. Collects, merges, deduplicates, and ranks findings
 8. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers

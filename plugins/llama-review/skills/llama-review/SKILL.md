@@ -104,23 +104,22 @@ If `--init` was passed, save without prompting. If the user declines or doesn't 
 
 ### Step 4: Pre-Flight Model Summary
 
-Print a dispatch plan before launching:
+Print a dispatch plan before launching. This plan shows which lanes will actually run after Step 5 consolidation rules are applied:
 
 ```
-Review dispatch plan:
+Review dispatch plan (N lanes, M models):
 
   Lane       Model                  Type    Effort   Files
   ─────────  ──────────────────────  ──────  ───────  ─────
-  frontend   qwen3.5:cloud          cloud   normal   12
-  backend    glm-5.1:cloud           cloud   normal   8
-  security   kimi-k2.6:cloud         cloud   normal   20
-  tests      deepseek-v4-flash:cloud  cloud   normal   5
-  simplify   minimax-m2.7:cloud      cloud   normal   20
+  backend    glm-5.1:cloud           cloud   normal   3
+
+  Folded: security → backend
+  Skipped: frontend (no matching files), tests (no matching files), simplify (small diff)
 ```
 
-For `--local` mode, show local model names with type "local". Show skipped lanes with the reason.
+For small diffs, show which lanes were consolidated or skipped and why. For `--local` mode, show local model names with type "local".
 
-### Step 5: Group Files by Lane
+### Step 5: Group Files by Lane and Apply Diff-Size Heuristics
 
 Match changed files against lane patterns:
 
@@ -138,7 +137,17 @@ Routing rules:
 - Tests gets test files plus their corresponding source files (same stem minus .test/.spec suffix). Best-effort heuristic — when in doubt, include more source files
 - A lane with zero matching files is skipped
 
-Also apply custom lanes from `.llama-review.yml` (under `lanes:` key). If `lanes=<list>` was passed, only run those lanes.
+**Diff-size lane consolidation.** Spinning up 5 ollama models for a 1-file change wastes time and tokens. Apply these rules after initial lane assignment:
+
+| Total changed files | Action |
+|---|---|
+| 1-3 files | Run **1 lane only**: pick the lane with the most matching files. Fold security + simplify concerns into that single review prompt. Skip all other lanes. |
+| 4-10 files | Run **2 lanes**: pick the two lanes with the most matching files. Fold security concerns into the highest-priority lane. Skip simplify unless the diff is >500 lines. |
+| 11+ files | Run **all lanes** that have matching files. No consolidation. |
+
+When folding concerns into a consolidated lane, append to the prompt: "Also check for: <folded concerns>". For example, if security is folded into backend: "Also check for: security vulnerabilities (injection, auth gaps, data exposure)."
+
+Also apply custom lanes from `.llama-review.yml` (under `lanes:` key). If `lanes=<list>` was passed, only run those lanes (override consolidation).
 
 If all lanes have zero files, report "No files matched any review lane" and stop.
 
@@ -241,14 +250,20 @@ Trust NO_ISSUES. Do not second-guess it.
 
 ### Step 11: Output the Final Report
 
+**Integrity check BEFORE rendering the table.** Verify that every lane in the table was dispatched via `ollama run` Bash calls (from Step 7 task_ids). If any lane was dispatched via the Agent tool instead, the review is INVALID. Report: "INTEGRITY FAILURE: Lane <name> was dispatched via Agent tool instead of ollama run. Review results are unreliable — all lanes ran on the same model. Re-run with /llama-review." Do NOT render the table if the integrity check fails.
+
 ```
 ## Models Used
 
-| Lane | Model | Type | Effort | Result |
-|------|-------|------|--------|--------|
-| <lane> | <model> | <cloud/local> | <effort level> | <findings count or NO_ISSUES or Failed> |
+| Lane | Model | Dispatch | Effort | Result |
+|------|-------|----------|--------|--------|
+| <lane> | <model> | ollama run | <effort level> | <findings count or NO_ISSUES or Failed or Timed out> |
 
-(One row per lane that ran, including lanes that failed or timed out.)
+(One row per lane that actually ran. The Dispatch column MUST say "ollama run" — if it says anything else, the review is invalid. Include lanes that failed or timed out with their actual result.)
+
+## Consolidated
+- <list lanes that were folded into other lanes due to small diff size, e.g. "security folded into backend">
+- (If no consolidation happened, omit this section)
 
 ## Critical
 - [file:line] concrete failure mode → suggested fix (confidence: high)
@@ -326,6 +341,8 @@ If `$ARGUMENTS` contains `--jira`:
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
 10. Dispatch via `ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
-11. Strip ANSI escape codes, then thinking/reasoning blocks, then leading whitespace before parsing output.
-12. Classify failures: timeout, model-not-found, network, unexpected-output.
-13. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.
+11. Integrity check: the Models Used table Dispatch column MUST say "ollama run". If any lane shows "Agent" or a specialist type name, the review is invalid. All Agent specialists run on the same model (this session's model), so using them means all lanes produce the same perspective — this defeats the multi-model purpose entirely.
+12. Strip ANSI escape codes, then thinking/reasoning blocks, then leading whitespace before parsing output.
+13. Classify failures: timeout, model-not-found, network, unexpected-output.
+14. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.
+15. Apply diff-size lane consolidation (Step 5). Small diffs get fewer model dispatches. Do not spin up 5 models for a 2-file change.
