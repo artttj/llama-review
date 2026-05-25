@@ -2,12 +2,13 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "llama-review",
   "owner": {
-    "name": "artttj",
+    "name": "Artem Iagovdik",
+    "email": "artyom.yagovdik@gmail.com",
     "url": "https://github.com/artttj"
   },
   "metadata": {
     "description": "Multi-model code review. Different models, different strengths, one report.",
-    "version": "1.8.1",
+    "version": "2.0.0",
     "pluginRoot": "./plugins"
   },
   "plugins": [
@@ -15,9 +16,10 @@
       "name": "llama-review",
       "source": "./plugins/llama-review",
       "description": "Run parallel code reviews through Ollama models, each assigned to the domain they're strongest at. Merges findings into one prioritized report.",
-      "version": "1.8.1",
+      "version": "2.0.0",
       "author": {
-        "name": "artttj",
+        "name": "Artem Iagovdik",
+        "email": "artyom.yagovdik@gmail.com",
         "url": "https://github.com/artttj"
       },
       "homepage": "https://github.com/artttj/llama-review",

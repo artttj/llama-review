@@ -1,9 +1,10 @@
 {
   "name": "llama-review",
-  "version": "1.8.1",
+  "version": "2.0.0",
   "description": "Run parallel specialist code reviews through Ollama models, each assigned to the domain they're strongest at. Merges findings into one prioritized report.",
   "author": {
-    "name": "artttj",
+    "name": "Artem Iagovdik",
+    "email": "artyom.yagovdik@gmail.com",
     "url": "https://github.com/artttj"
   },
   "homepage": "https://github.com/artttj/llama-review",

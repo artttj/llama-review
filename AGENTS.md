@@ -4,7 +4,20 @@
 
 Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
 
-**Dispatch rule:** Every review lane dispatches via the Ollama HTTP API: `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Agent tools all run on the same model — using them means every lane produces the same perspective, which defeats the multi-model purpose entirely. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column must say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
+**Dispatch rule:** Every review lane dispatches via the Ollama HTTP API. Same command for cloud and local models. Agent tools all run on the same model — using them means every lane produces the same perspective, which defeats the multi-model purpose entirely. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column must say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
+
+**Command template:**
+```
+RESULT=$(jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response') && if [ -z "$RESULT" ]; then echo "LANE_ERROR: empty response from API" >&2; exit 1; fi && echo "$RESULT"
+```
+
+**Critical rules:**
+- **No `&` in commands.** `run_in_background: true` handles parallelism. Adding `&` causes the shell to exit before curl completes — empty output on every lane.
+- **Validate output is non-empty.** Capture the result in a variable and check it before treating the lane as successful. An empty response is a lane failure.
+- **Timeout: 300000 (5 min) per lane.** Cloud models respond in 60-120s. 5 minutes gives headroom without hanging the review.
+- **`--max-time 240` on curl.** HTTP-level timeout shorter than the harness timeout so failures surface cleanly.
+- **`stream: true` for diffs >500KB per lane.** Prevents Ollama server-side timeouts on slow cloud models.
+- **Cap diffs at 1MB hard limit.** Models can't handle more. Warn at 100KB+.
 
 **Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with the Ollama HTTP API.
 
@@ -54,5 +67,5 @@ Override with `.llama-review.yml` in project root.
 ### Failure handling
 
 - API call fails → mark lane as Failed, report error honestly. Do NOT retry with a different model or Agent specialists.
-- Timeout (10 min) → mark lane as "Timed out", continue.
+- Timeout (5 min) → mark lane as "Timed out", continue.
 - Unexpected output format → strip thinking blocks, apply fallback regex extraction (Step 8), then mark as "Failed: unexpected output format" if still unparseable.

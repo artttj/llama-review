@@ -119,7 +119,12 @@ Recommended local models:
 
 ## Maintaining
 
-The three command files (`commands/llama-review.md`, `plugins/llama-review/commands/llama-review.md`, `.opencode/commands/llama-review.md`) must stay in sync. When updating one, copy changes to all three.
+After editing the skill, sync these files in order:
+
+1. `plugins/llama-review/skills/llama-review/SKILL.md` — canonical skill source
+2. `SKILL.md` (root) — copy from plugin version
+3. `AGENTS.md` — dispatch rules and failure handling (keep timeouts and command template in sync)
+4. `commands/llama-review.md`, `plugins/llama-review/commands/llama-review.md`, `.opencode/commands/llama-review.md` — command files (keep all three identical)
 
 Version numbers live in two places: `plugins/llama-review/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Bump both together.
 

@@ -12,13 +12,29 @@ You orchestrate parallel specialist reviewers through Ollama, each running on a 
 **Every review lane dispatches via the Ollama HTTP API. The command is:**
 
 ```
-jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'
+jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response'
 ```
 
 Why the API instead of `ollama run` CLI:
 1. **Clean output** — pure JSON, no braille spinner characters, no ANSI escape codes
 2. **No size limits** — JSON body avoids shell ARG_MAX limits on large diffs
 3. **No parsing fragility** — `jq -r '.response'` extracts exactly the model output
+
+### Why `&` breaks dispatch
+
+`run_in_background: true` is the parallelism mechanism. The harness dispatches all lanes in parallel. Do NOT add `&` inside the Bash command itself.
+
+When you add `&` to a command inside `run_in_background`, the shell spawns curl as a child and exits immediately. The harness sees the shell exit (success) and considers the task done — but curl hasn't finished. Every lane produces an empty output file.
+
+```
+# WRONG — & makes the shell exit before curl completes
+Bash({ command: "... | curl ... &", run_in_background: true })
+
+# RIGHT — no &, the shell waits for curl
+Bash({ command: "... | curl ...", run_in_background: true })
+```
+
+One sequential pipe per lane, no `&`. The harness parallelizes.
 
 ### Why Agent tools defeat the purpose
 
@@ -41,7 +57,7 @@ This is the path of least resistance. It's also wrong. Every lane above runs on 
 
 ```
 Bash({
-  command: "jq -Rs --arg model \"glm-5.1:cloud\" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'",
+  command: "jq -Rs --arg model \"glm-5.1:cloud\" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response'",
   run_in_background: true,
   description: "Backend review via glm-5.1:cloud (API)"
 })
@@ -87,12 +103,25 @@ git diff "<target>"...HEAD --name-only
 
 If the command fails, report the error and stop. If no changed files, report "No changed files to review" and stop.
 
-Get the full diff:
+Save the full diff for size check and per-lane filtering:
 ```bash
-git diff "<target>"...HEAD
+git diff "<target>"...HEAD > /tmp/llama-review-diff.txt
 ```
 
-If the diff exceeds 3,000 lines, warn that some models may lack full context. Continue — truncation is handled per lane in Step 6.
+Check the diff size:
+```bash
+DIFF_SIZE=$(wc -c < /tmp/llama-review-diff.txt)
+echo "Diff size: $DIFF_SIZE bytes"
+```
+
+| Size | Action |
+|------|--------|
+| < 100KB | Normal — all lanes get full per-lane diff |
+| 100KB – 500KB | Warn: "Diff is N KB. Some models may lose context on the full diff. Per-lane truncation (Step 6) will cap at 20K chars." |
+| 500KB – 1MB | Warn: "Diff is very large (N KB). Models will see truncated input. Consider reviewing fewer commits or using `--effort quick` to reduce token usage." |
+| > 1MB | Hard stop. Report: "Diff exceeds 1MB — model context would be overwhelmed even with truncation. Review fewer commits at a time or use target=<ref> to narrow the scope." |
+
+Continue — per-lane truncation in Step 6 handles the 20K character cap per lane.
 
 ### Step 2: Load Configuration
 
@@ -209,11 +238,14 @@ Dispatch check:
 1. Every lane will be a Bash call? ___
 2. Every Bash call hits http://localhost:11434/api/generate? ___
 3. Zero lanes will use the Agent tool? ___
+4. Zero lanes use & for backgrounding? ___  (run_in_background: true handles parallelism — & causes empty output)
 
 If any answer is NO, stop and re-read the STOP block.
 ```
 
 All answers YES? Proceed.
+
+**Critical: no `&` in commands.** Each lane is a single sequential pipe. `run_in_background: true` parallelizes across lanes. Adding `&` inside the command makes the shell exit before curl completes — every lane produces empty output.
 
 For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SINGLE message.
 
@@ -221,14 +253,20 @@ For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SING
 
 ```
 Bash({
-  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\njq -Rs --arg model \"<model>\" '{model: $model, prompt: ., stream: false}' \"$PROMPT_FILE\" | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'",
+  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nRESULT=$(jq -Rs --arg model \"<model>\" '{model: $model, prompt: ., stream: false}' \"$PROMPT_FILE\" | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response') && if [ -z \"$RESULT\" ]; then echo \"LANE_ERROR: empty response from API\" >&2; exit 1; fi && echo \"$RESULT\"",
   run_in_background: true,
-  timeout: 600000,
+  timeout: 300000,
   description: "<Lane> review via <model> (API)"
 })
 ```
 
-The prompt is written to a temp file, then `jq -Rs` reads it as a raw string and builds the JSON payload (`-R` for raw input, `-s` to slurp into a single string). The `--arg model` injects the model name safely (no shell interpolation). `curl -s http://localhost:11434/api/generate -d @-` reads the JSON from stdin. `jq -r '.response'` extracts the model's response text. No ANSI codes, no spinner pollution, no ARG_MAX limits.
+The prompt is written to a temp file. `jq -Rs` reads it as a raw string and builds the JSON payload (`-R` for raw input, `-s` to slurp into a single string). `--arg model` injects the model name safely — no shell interpolation. `curl -s --max-time 240` calls the API with a 4-minute HTTP timeout (less than the 5-minute harness timeout, so we get a clean error rather than a kill). `jq -r '.response'` extracts the model's response text. The `RESULT=$(...)` capture and `-z` check validate the output is non-empty — an empty response is treated as a lane failure, not a silent success.
+
+**For large per-lane diffs (>500KB before truncation):** switch `stream: false` to `stream: true` in the JSON payload and change the curl pipe to collect NDJSON lines:
+```
+jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: true}' "$PROMPT_FILE" | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | while read -r line; do echo "$line" | jq -r '.response' 2>/dev/null; done | tr -d '\n'
+```
+Stream mode prevents Ollama server-side timeouts on slow cloud models by delivering tokens as they're generated. Default to `stream: false` — only switch to `stream: true` when the per-lane diff exceeds 500KB.
 
 Map each task_id to its lane name for result collection.
 
@@ -239,13 +277,14 @@ Map each task_id to its lane name for result collection.
 For each background task:
 
 ```
-TaskOutput({ task_id: "<id>", block: true, timeout: 600000 })
+TaskOutput({ task_id: "<id>", block: true, timeout: 300000 })
 ```
 
-If a task times out after 10 minutes, mark that lane as "Timed out" and continue.
+If a task times out after 5 minutes, mark that lane as "Timed out" and continue.
 
 Error handling:
-- **Non-zero exit code:** Mark as "Failed" with stderr as the reason. Classify: `model not found` vs `network error` vs `other`.
+- **`LANE_ERROR` in stderr:** The command's built-in validation caught an empty response. Mark as "Failed: empty response from API (output validation)".
+- **Non-zero exit code (other):** Mark as "Failed" with stderr as the reason. Classify: `model not found` vs `network error` vs `other`.
 - **Exit code 0 but empty response:** Mark as "Failed: empty response from API".
 - **Exit code 0 but `jq` parse error:** The API returned non-JSON (connection refused, bad gateway). Mark as "Failed: API error" with the raw output.
 
@@ -435,7 +474,7 @@ If `$ARGUMENTS` contains `--jira`:
 7. Honor the effort level. Pass the correct behavioral description.
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
-10. Dispatch via `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Agent tools all run on the same model and defeat the multi-model purpose — a lane on the wrong model is worse than a failed lane.
+10. Dispatch via `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s --max-time 240 http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Agent tools all run on the same model and defeat the multi-model purpose — a lane on the wrong model is worse than a failed lane.
 11. Integrity check: the Models Used table Dispatch column must say "ollama API". If any lane shows "Agent" or a specialist type name, all lanes ran on the same model and the review is invalid.
 12. Strip thinking/reasoning blocks, then leading whitespace before parsing output. No ANSI stripping needed — the API returns clean JSON.
 13. Classify failures: timeout, model-not-found, network, unexpected-output.
@@ -443,3 +482,7 @@ If `$ARGUMENTS` contains `--jira`:
 15. Apply diff-size lane consolidation (Step 5). Small diffs get fewer model dispatches.
 16. After the report, offer interactive fix actions (Step 12).
 17. Apply fallback output extraction (Step 8) when models don't produce the expected FILE:/NO_ISSUES format.
+18. Never use `&` inside a `run_in_background` Bash command. The harness parallelizes — `&` causes the shell to exit before curl completes, producing empty output.
+19. Validate every lane's output is non-empty before treating it as success. An empty response is a lane failure, not a silent success.
+20. Cap diffs at 1MB hard limit. Warn at 100KB+. Trust per-lane truncation (Step 6) to keep individual model contexts manageable.
+21. Use `stream: true` for per-lane diffs >500KB to prevent Ollama server-side timeouts. Default to `stream: false` for normal-sized diffs.
