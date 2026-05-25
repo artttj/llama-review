@@ -9,22 +9,49 @@ You orchestrate parallel specialist reviewers through Ollama, each running on a 
 
 ## STOP — READ BEFORE PROCEEDING
 
-**Every review lane MUST dispatch via the Ollama HTTP API. This is the ONLY valid dispatch method. The command is:**
+**Every review lane dispatches via the Ollama HTTP API. The command is:**
 
 ```
 jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'
 ```
 
 Why the API instead of `ollama run` CLI:
-1. **Clean output** — the API returns pure JSON with the response in `.response`. No braille spinner characters, no ANSI cursor control sequences, no stderr pollution. The CLI emits these even with `--nowordwrap --hidethinking`.
-2. **No size limits** — the prompt is sent as a JSON body, avoiding shell ARG_MAX limits that break with large diffs (3600+ lines).
-3. **No parsing fragility** — `jq -r '.response'` extracts exactly the model output. No perl regex stripping needed.
+1. **Clean output** — pure JSON, no braille spinner characters, no ANSI escape codes
+2. **No size limits** — JSON body avoids shell ARG_MAX limits on large diffs
+3. **No parsing fragility** — `jq -r '.response'` extracts exactly the model output
 
-**NEVER use the Agent tool for review lanes.** Do NOT use built-in specialist types (typescript-reviewer, code-reviewer, security-reviewer, etc.). The entire value of this skill comes from different models with different strengths.
+### Why Agent tools defeat the purpose
 
-**NEVER run `ollama list` to check for cloud models.** The `ollama list` command only shows locally pulled models. Cloud models (those with `:cloud` suffix) do NOT appear in `ollama list`. Running `ollama list` and concluding "only local models available, I'll use Agent specialists instead" is the #1 failure mode. Do not do this.
+Agent tools — `python-reviewer`, `typescript-reviewer`, `security-reviewer`, `code-simplifier`, `tdd-guide` — all run on the same model: this session's Claude. Dispatch 5 lanes as Agent sub-agents and every lane produces output from the same model with the same architectural biases. You get one perspective wearing 5 hats, not 5 independent specialists.
 
-**Cloud models work with the same API call.** The `:cloud` suffix is part of the model name. `{"model": "qwen3.5:cloud"}` in the API works just like `{"model": "gemma3:4b"}`. No special handling needed. Dispatch directly. If a model is unavailable, the API call will fail — handle that in Step 8.
+The entire value of this skill is that different models catch different things. Qwen sees frontend layout breaks that GLM misses. Kimi catches injection vectors that DeepSeek overlooks. When all lanes run on the same model, the review is worthless — findings look legitimate but carry no independent perspective.
+
+A lane that fails because a model is unavailable is honest. A lane that ran as an Agent instead of an ollama model is worse than no lane at all.
+
+### The wrong way (what you'll be tempted to do)
+
+```
+Agent({ subagent_type: "python-reviewer", description: "Backend review" })
+Agent({ subagent_type: "security-reviewer", description: "Security review" })
+```
+
+This is the path of least resistance. It's also wrong. Every lane above runs on the same model.
+
+### The right way (the only way)
+
+```
+Bash({
+  command: "jq -Rs --arg model \"glm-5.1:cloud\" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'",
+  run_in_background: true,
+  description: "Backend review via glm-5.1:cloud (API)"
+})
+```
+
+One Bash call per lane, each with a different model. All dispatched in parallel in a single message.
+
+**Before continuing, state: "I will dispatch each lane via Bash+curl to the Ollama API. Zero lanes will use the Agent tool."** If you can't state this, re-read this section.
+
+**Cloud models work with the same API call.** `{"model": "qwen3.5:cloud"}` in the API works just like `{"model": "gemma3:4b"}`. Do not run `ollama list` to check for cloud models — they don't appear there but work fine with the API. If a model is unavailable, the API call will fail — handle that in Step 8.
 
 ## Argument Parsing
 
@@ -175,7 +202,18 @@ For each active lane:
 
 ### Step 7: Dispatch Parallel Reviewers
 
-**REMINDER: You MUST dispatch via the Ollama HTTP API. Do NOT use `ollama run` CLI. Do NOT use the Agent tool. Do NOT use built-in specialist types like typescript-reviewer, code-reviewer, etc. Every lane is a curl + jq Bash call. No exceptions.**
+**Verification gate — complete before dispatching:**
+
+```
+Dispatch check:
+1. Every lane will be a Bash call? ___
+2. Every Bash call hits http://localhost:11434/api/generate? ___
+3. Zero lanes will use the Agent tool? ___
+
+If any answer is NO, stop and re-read the STOP block.
+```
+
+All answers YES? Proceed.
 
 For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SINGLE message.
 
@@ -397,11 +435,11 @@ If `$ARGUMENTS` contains `--jira`:
 7. Honor the effort level. Pass the correct behavioral description.
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
-10. Dispatch via `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Never use `ollama run` CLI. Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
-11. Integrity check: the Models Used table Dispatch column MUST say "ollama API". If any lane shows "Agent" or a specialist type name, the review is invalid. All Agent specialists run on the same model (this session's model), so using them means all lanes produce the same perspective — this defeats the multi-model purpose entirely.
+10. Dispatch via `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Agent tools all run on the same model and defeat the multi-model purpose — a lane on the wrong model is worse than a failed lane.
+11. Integrity check: the Models Used table Dispatch column must say "ollama API". If any lane shows "Agent" or a specialist type name, all lanes ran on the same model and the review is invalid.
 12. Strip thinking/reasoning blocks, then leading whitespace before parsing output. No ANSI stripping needed — the API returns clean JSON.
 13. Classify failures: timeout, model-not-found, network, unexpected-output.
-14. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.
-15. Apply diff-size lane consolidation (Step 5). Small diffs get fewer model dispatches. Do not spin up 5 models for a 2-file change.
-16. After the report, offer interactive fix actions (Step 12). Let the user choose between fixing inline, running specialist subagents, or skipping fixes.
-17. Apply fallback output extraction (Step 8) when models don't produce the expected FILE:/NO_ISSUES format. Try regex extraction before giving up on a lane's output.
+14. Do not run `ollama list` in cloud mode. Cloud models don't appear in `ollama list` but work fine with the API. Only use `ollama list` when `--local` was passed.
+15. Apply diff-size lane consolidation (Step 5). Small diffs get fewer model dispatches.
+16. After the report, offer interactive fix actions (Step 12).
+17. Apply fallback output extraction (Step 8) when models don't produce the expected FILE:/NO_ISSUES format.

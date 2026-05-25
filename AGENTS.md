@@ -4,7 +4,7 @@
 
 Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
 
-**Dispatch rule:** Every review lane MUST run via the Ollama HTTP API: `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column MUST say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
+**Dispatch rule:** Every review lane dispatches via the Ollama HTTP API: `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Agent tools all run on the same model — using them means every lane produces the same perspective, which defeats the multi-model purpose entirely. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column must say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
 
 **Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with the Ollama HTTP API.
 
