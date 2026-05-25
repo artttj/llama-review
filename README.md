@@ -33,6 +33,7 @@ Every finding has the file, line, what's broken, and how to fix it. No generic f
 ```
 /plugin marketplace add artttj/llama-review
 /plugin install llama-review
+/reload-plugins
 ```
 
 Then run:
