@@ -4,9 +4,9 @@
 
 Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
 
-**Dispatch rule:** Every review lane MUST run via `TERM=dumb NO_COLOR=1 ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null | perl -pe 's/\x1b\[\??[0-9;]*[a-zA-Z]//g'`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column MUST say "ollama run" — if it says "Agent" or a specialist type name, the review is invalid.
+**Dispatch rule:** Every review lane MUST run via the Ollama HTTP API: `jq -Rs --arg model "<model>" '{model: $model, prompt: ., stream: false}' <prompt-file> | curl -s http://localhost:11434/api/generate -d @- | jq -r '.response'`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column MUST say "ollama API" — if it says "Agent" or a specialist type name, the review is invalid.
 
-**Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with `ollama run`.
+**Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with the Ollama HTTP API.
 
 **Orchestration rule:** You orchestrate, not review. Do not add your own commentary on findings. Trust the models on their lane. Never second-guess NO_ISSUES.
 
@@ -45,14 +45,14 @@ Override with `.llama-review.yml` in project root.
 3. Print dispatch plan with model, type, effort per lane.
 4. Group changed files into lanes by pattern. Apply diff-size consolidation (1-3 files → 1 model, 4-10 → 2 models, 11+ → all).
 5. Build prompts from templates, append filtered diffs (20K char limit per lane).
-6. Dispatch ALL lanes as parallel `ollama run` Bash calls in a single message.
-7. Collect results. Strip ANSI escape codes and thinking blocks (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax). Parse `FILE:` or `NO_ISSUES` format.
+6. Dispatch ALL lanes as parallel Ollama HTTP API calls in a single message.
+7. Collect results. Strip thinking blocks (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax). Parse `FILE:` or `NO_ISSUES` format. Apply fallback regex extraction if format doesn't match.
 8. Merge, deduplicate by root cause, rank into Critical / Needs Attention / Noted.
 9. Validate against finding contract (FILE, LINE, CODE, FAILURE, CONFIDENCE, FIX). Discard generic advice.
 10. Output report with Models Used table, findings, suggested test commands, PR summary, next steps.
 
 ### Failure handling
 
-- `ollama run` fails → mark lane as Failed, report error honestly. Do NOT retry with a different model or Agent specialists.
+- API call fails → mark lane as Failed, report error honestly. Do NOT retry with a different model or Agent specialists.
 - Timeout (10 min) → mark lane as "Timed out", continue.
-- Unexpected output format → strip ANSI codes and thinking blocks, then mark as "Failed: unexpected output format" if still unparseable.
+- Unexpected output format → strip thinking blocks, apply fallback regex extraction (Step 8), then mark as "Failed: unexpected output format" if still unparseable.

@@ -4,7 +4,7 @@
 # This file is auto-created on first run if missing.
 # Edit to customize models, effort, or add custom lanes.
 #
-# Cloud models (:cloud suffix) are dispatched via `ollama launch`.
+# Cloud models (:cloud suffix) are dispatched via the Ollama HTTP API.
 # They do NOT appear in `ollama list` — that only shows locally pulled models.
 # Use --local flag to switch to local models, or set local: true below.
 #
@@ -33,7 +33,7 @@ local: false
 # Custom review lanes extend the built-in defaults.
 # Built-in lanes: frontend, backend, security, tests, simplify.
 # To disable a built-in lane, set its model to false above.
-lanes: {}
+lanes:
 #  magento:
 #    files: "app/code/**, etc/**/*.xml, Plugin/**, Observer/**"
 #    focus: "DI mistakes, plugin sort order, cache scope config, setup patches"
