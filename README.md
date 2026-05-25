@@ -49,6 +49,7 @@ Requires the `ollama` CLI on PATH. On first run without a config file, llama-rev
 /llama-review target=origin/staging                  # diff against a branch
 /llama-review lanes=frontend,security               # only specific lanes
 /llama-review --local                               # use local ollama models
+/llama-review --init                                # create .llama-review.yml from defaults
 /llama-review --effort deep                         # 64k tokens per lane
 /llama-review --jira                                # append a Jira comment block
 ```
@@ -72,6 +73,8 @@ effort:
   normal: 32000
   deep: 64000
 
+local: false  # set to true to use local models (strips :cloud suffix)
+
 lanes:
   magento:
     files: "app/code/**, etc/**/*.xml"
@@ -83,13 +86,13 @@ Set a lane's model to `false` to disable it. Custom lanes extend the built-in on
 
 ## Review lanes
 
-| Lane | Files | Default model | Why this model |
-|------|-------|---------------|----------------|
-| frontend | `*.tsx, *.jsx, *.vue, *.svelte, *.astro, *.css, *.scss, *.less, *.html, *.mdx, templates/` | qwen3.5:cloud | Vision + thinking + tools for UI review |
-| backend | `*.php, *.py, *.rb, *.go, *.java, *.rs, *.kt, *.ts, *.js, *.cs, *.scala, *.c, *.cpp, *.sql, *.graphql` | glm-5.1:cloud | Strongest code reasoning, 9.5/10 |
-| security | all files | kimi-k2.6:cloud | 262K context for full attack surface review |
-| tests | `*.test.*, *_test.*, *.spec.*, tests/, __tests__/, *.cy.*, *.e2e.*, *.stories.*` | deepseek-v4-flash:cloud | Fast structured analysis |
-| simplify | all files | minimax-m2.7:cloud | Cheap pattern matching for dead code and over-engineering |
+| Lane | Files | Default model | Type | Why this model |
+|------|-------|---------------|------|----------------|
+| frontend | `*.tsx, *.jsx, *.vue, *.svelte, *.astro, *.css, *.scss, *.less, *.html, *.mdx, templates/` | qwen3.5:cloud | cloud | Vision + thinking + tools for UI review |
+| backend | `*.php, *.py, *.rb, *.go, *.java, *.rs, *.kt, *.ts, *.js, *.cs, *.scala, *.c, *.cpp, *.sql, *.graphql` | glm-5.1:cloud | cloud | Strongest code reasoning, 9.5/10 |
+| security | all files | kimi-k2.6:cloud | cloud | 262K context for full attack surface review |
+| tests | `*.test.*, *_test.*, *.spec.*, tests/, __tests__/, *.cy.*, *.e2e.*, *.stories.*` | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
+| simplify | all files | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
 Each lane only gets files matching its patterns. Security and simplify always get the full diff. Empty lanes are skipped.
 
