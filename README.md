@@ -24,6 +24,7 @@ Results merge, deduplicate, and rank into a single report.
 - **Models Used**: which model ran each lane, effort level, and result
 - **Suggested test commands**: what to run to verify the changes
 - **One-paragraph summary**: ready to paste into a PR or Slack
+- **Structured JSON output**: `--json` flag writes machine-readable findings to a file
 - **Next Steps**: concrete subagent commands to fix each finding
 
 Every finding has the file, line, what's broken, and how to fix it. No generic filler.
@@ -41,7 +42,7 @@ Then run:
 /llama-review
 ```
 
-Requires the `ollama` CLI on PATH. On first run without a config file, llama-review offers to create `.llama-review.yml` from defaults.
+Requires the `ollama` CLI on PATH and Node.js 18+ (bundled with Claude Code). On first run without a config file, llama-review offers to create `.llama-review.yml` from defaults.
 
 ## Usage
 
@@ -53,6 +54,7 @@ Requires the `ollama` CLI on PATH. On first run without a config file, llama-rev
 /llama-review --init                                # create .llama-review.yml from defaults
 /llama-review --effort deep                         # 64k tokens per lane
 /llama-review --jira                                # append a Jira comment block
+/llama-review --json                               # write structured findings to JSON file
 ```
 
 The `llama-review.mjs` script handles the full pipeline: detects changed files with `git diff`, applies exclude patterns, auto-assigns files to lanes by pattern, scales token budgets by diff size, dispatches parallel Ollama API calls with per-lane timeout and retry, handles thinking model output (falls back to `message.thinking` when `message.content` is empty), parses structured JSON output with text fallback, then merges and ranks the findings.
@@ -119,17 +121,17 @@ For example, `.llama-review/prompts/security.md` replaces the built-in security 
 
 | Lane | Files | Default model | Type | Why this model |
 |------|-------|---------------|------|----------------|
-| frontend | `*.tsx, *.jsx, *.vue, *.svelte, *.astro, *.css, *.scss, *.less, *.html, *.mdx, templates/` | qwen3.5:cloud | cloud | Vision + thinking + tools for UI review |
-| backend | `*.php, *.py, *.rb, *.go, *.java, *.rs, *.kt, *.ts, *.js, *.cs, *.scala, *.c, *.cpp, *.sql, *.graphql` | glm-5.1:cloud | cloud | Strongest code reasoning, 9.5/10 |
+| frontend | `*.tsx, *.jsx, *.vue, *.svelte, *.astro, *.css, *.scss, *.less, *.html, *.mdx, *.d.ts, *.j2, *.twig, *.blade.php, templates/` | qwen3.5:cloud | cloud | Vision + thinking + tools for UI review |
+| backend | `*.php, *.py, *.rb, *.go, *.java, *.rs, *.kt, *.ts, *.js, *.cs, *.scala, *.c, *.cpp, *.h, *.hpp, *.sql, *.graphql, *.proto, *.tf` (excludes test and frontend files) | glm-5.1:cloud | cloud | Strongest code reasoning, 9.5/10 |
 | security | all files | kimi-k2.6:cloud | cloud | 262K context for full attack surface review |
-| tests | `*.test.*, *_test.*, *.spec.*, tests/, __tests__/, *.cy.*, *.e2e.*, *.stories.*` | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
+| tests | `*.test.*, *_test.*, *.spec.*, *_spec.*, *.phpunit.*, *.cy.*, *.e2e.*, *.integration.*, *.stories.*, tests/, __tests__/, spec/` | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
 | simplify | all files | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
 Each lane only gets files matching its patterns. Security and simplify always get the full diff. Empty lanes are skipped. Files are auto-assigned by the script — no manual categorization needed.
 
 ## Local models
 
-Pass `--local` to use local Ollama models instead of cloud. The script strips `:cloud` suffixes and verifies each local model is available via `ollama list`. Missing models are skipped with a warning.
+Pass `--local` to use local Ollama models instead of cloud. The script strips `:cloud` suffixes and dispatches directly — if a local model isn't available, the lane fails and reports the error.
 
 **Note:** Cloud models (with `:cloud` suffix) are dispatched via the Ollama HTTP API and do NOT appear in `ollama list` output. `ollama list` only shows locally pulled models. Cloud model availability is validated at dispatch time — if a cloud model is unavailable, the lane fails and reports the error honestly.
 
