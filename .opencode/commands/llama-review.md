@@ -37,13 +37,14 @@ $ARGUMENTS
 | tests | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
 | simplify | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
-Cloud models (with `:cloud` suffix) are dispatched via `ollama launch`. They do NOT appear in `ollama list`. Use `--local` to switch to local models.
+Cloud models (with `:cloud` suffix) are dispatched via `ollama launch`. They do NOT appear in `ollama list` — **do not run `ollama list` to check for cloud models.** Use `--local` to switch to local models.
 
 ## Flags
 
 | Flag | Description |
 |------|-------------|
 | `target=<ref>` | Git ref to diff against (default: `origin/main`) |
+| `last N commits` | Shorthand: review last N commits (e.g. `last 3 commits` → `HEAD~3`) |
 | `lanes=<list>` | Comma-separated lanes to run (default: all) |
 | `--local` | Use local Ollama models instead of cloud |
 | `--effort <level>` | Review depth: `quick`, `normal`, `deep` (default: `normal`) |

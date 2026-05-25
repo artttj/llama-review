@@ -7,7 +7,13 @@ description: Use when the user invokes /llama-review or asks to run a multi-mode
 
 You orchestrate parallel specialist reviewers through Ollama, each running on a model chosen for that domain, then merge, deduplicate, rank, and validate their findings into a prioritized report.
 
-You must use Ollama models via `ollama launch` or `ollama run`. Never substitute built-in Agent specialist types. The value of this skill comes from different models with different strengths.
+## STOP — READ BEFORE PROCEEDING
+
+**You MUST use Ollama models via `ollama launch` (cloud) or `ollama run` (local). NEVER substitute built-in Agent specialist types (typescript-reviewer, code-reviewer, security-reviewer, etc.). The entire value of this skill comes from different models with different strengths.**
+
+**DO NOT run `ollama list` to check for cloud models.** The `ollama list` command only shows locally pulled models. Cloud models (those with `:cloud` suffix) do NOT appear in `ollama list`. Running `ollama list` and concluding "only gemma3:4b available, I'll use Agent specialists instead" is the #1 failure mode. Do not do this.
+
+**Default mode is cloud.** Unless `--local` was passed, all models have `:cloud` suffix and are dispatched via `ollama launch claude --model <model>`. Trust the `:cloud` suffix and dispatch directly. If a cloud model is unavailable, the `ollama launch` call itself will fail — handle that in Step 8. Do NOT pre-check with `ollama list`.
 
 ## Argument Parsing
 
@@ -16,6 +22,7 @@ You must use Ollama models via `ollama launch` or `ollama run`. Never substitute
 - `--effort <level>`: one of `quick`, `normal`, `deep`. Default: `normal`.
 - `lanes=<list>`: comma-separated, no spaces. `lanes=frontend,security` is valid.
 - `target=<ref>`: git ref to diff against. Default: `origin/main`.
+- `last N commits`: shorthand for reviewing the last N commits. Compute the target as `HEAD~N` (e.g. "last 3 commits" → `target=HEAD~3`).
 - Empty or missing values fall back to defaults.
 
 Execute these steps in order. Do not skip steps.
@@ -29,6 +36,14 @@ which ollama || echo "MISSING"
 ```
 
 If ollama is missing, stop and report: "ollama CLI not found on PATH. Install it first: https://ollama.com"
+
+**CRITICAL: Do NOT run `ollama list` in cloud mode.** Only run `ollama list` when `--local` was explicitly passed. In cloud mode, verify `ollama launch` works instead:
+
+```bash
+ollama launch --help >/dev/null 2>&1 && echo "LAUNCH_OK" || echo "LAUNCH_MISSING"
+```
+
+If `LAUNCH_MISSING`, report: "ollama launch is not available. Update ollama to a version that supports cloud models."
 
 Parse `$ARGUMENTS` for `target=<ref>`. Default: `origin/main`.
 
@@ -61,7 +76,7 @@ If not found, use built-in defaults:
 - effort: `normal` (32000 tokens)
 - local: `false`
 
-**Cloud model availability:** Models with `:cloud` suffix are dispatched via `ollama launch`. They do NOT appear in `ollama list` — that command only shows locally pulled models. Do NOT check `ollama list` for cloud models. Trust the `:cloud` suffix and dispatch directly. If a cloud model is unavailable, the `ollama launch` call will fail — handle that in Step 8.
+**Cloud model dispatch (default):** Models with `:cloud` suffix are dispatched via `ollama launch claude --model <model>`. They do NOT appear in `ollama list`. Do NOT run `ollama list` to check for them. Trust the `:cloud` suffix and dispatch directly. If a cloud model is unavailable, the `ollama launch` call will fail — handle that in Step 8. Do NOT fall back to built-in Agent specialists on failure.
 
 If `--local` was passed, strip `:cloud` suffixes and verify each model via `ollama list`. Skip lanes with missing models, warn with the model name, and suggest `ollama pull <model>`.
 
@@ -144,6 +159,8 @@ For each active lane:
 
 ### Step 7: Dispatch Parallel Reviewers
 
+**REMINDER: You MUST dispatch via `ollama launch` (cloud) or `ollama run` (local). Do NOT use the Agent tool. Do NOT use built-in specialist types like typescript-reviewer, code-reviewer, etc. Every lane is an `ollama launch` Bash call. No exceptions.**
+
 For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SINGLE message.
 
 **For cloud models (default):**
@@ -170,7 +187,7 @@ Bash({
 
 Map each task_id to its lane name for result collection.
 
-**Fallback behavior:** If `ollama launch` fails for a cloud model, mark that lane as failed in Step 8. Do NOT substitute a different model or fall back to built-in agents. Report the failure honestly with the error output.
+**Fallback behavior:** If `ollama launch` fails for a cloud model, mark that lane as failed in Step 8. Do NOT substitute a different model. Do NOT fall back to built-in Agent specialists. Do NOT use the Agent tool. Report the failure honestly with the error output. A failed lane is better than a lane that ran on the wrong model.
 
 ### Step 8: Collect Results
 
@@ -315,6 +332,7 @@ If `$ARGUMENTS` contains `--jira`:
 7. Honor the effort level. Pass the correct behavioral description.
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
-10. Use Ollama models. Always dispatch via `ollama launch` (cloud) or `ollama run` (local). Never substitute built-in Agent specialist types.
+10. Use Ollama models. Always dispatch via `ollama launch` (cloud) or `ollama run` (local). Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
 11. Strip all thinking/reasoning blocks before parsing output (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax formats).
 12. Classify failures: timeout, model-not-found, network, unexpected-output.
+13. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.
