@@ -1,0 +1,58 @@
+# Llama Review Agents
+
+## llama-review
+
+Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
+
+**Dispatch rule:** Every review lane MUST run via `ollama launch` (cloud) or `ollama run` (local). Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all.
+
+**Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly.
+
+**Orchestration rule:** You orchestrate, not review. Do not add your own commentary on findings. Trust the models on their lane. Never second-guess NO_ISSUES.
+
+### When to use
+
+- User invokes `/llama-review`
+- User asks for a multi-model code review
+- User asks to review PR, commits, or diff with Ollama
+
+### Arguments
+
+- `target=<ref>` — git ref to diff against (default: `origin/main`)
+- `last N commits` — shorthand (e.g. `last 3 commits` → `HEAD~3`)
+- `lanes=<list>` — comma-separated lanes to run (default: all)
+- `--effort <level>` — `quick`, `normal`, `deep` (default: `normal`)
+- `--local` — use local Ollama models instead of cloud
+- `--jira` — append Jira-ready comment block
+- `--init` — save default config without prompting
+
+### Default cloud models
+
+| Lane | Model | Strength |
+|------|-------|----------|
+| frontend | qwen3.5:cloud | Vision + thinking for UI review |
+| backend | glm-5.1:cloud | Strongest code reasoning |
+| security | kimi-k2.6:cloud | 262K context for attack surfaces |
+| tests | deepseek-v4-flash:cloud | Fast structured analysis |
+| simplify | minimax-m2.7:cloud | Cheap dead code detection |
+
+Override with `.llama-review.yml` in project root.
+
+### Workflow
+
+1. Pre-flight: check `ollama launch` works (cloud) or `ollama list` (local). Validate target ref.
+2. Load config from `.llama-review.yml` or defaults. Offer to save if missing.
+3. Print dispatch plan with model, type, effort per lane.
+4. Group changed files into lanes by pattern.
+5. Build prompts from templates, append filtered diffs (20K char limit per lane).
+6. Dispatch ALL lanes as parallel `ollama launch` Bash calls in a single message.
+7. Collect results. Strip thinking blocks (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax). Parse `FILE:` or `NO_ISSUES` format.
+8. Merge, deduplicate by root cause, rank into Critical / Needs Attention / Noted.
+9. Validate against finding contract (FILE, LINE, CODE, FAILURE, CONFIDENCE, FIX). Discard generic advice.
+10. Output report with Models Used table, findings, suggested test commands, PR summary, next steps.
+
+### Failure handling
+
+- `ollama launch` fails → mark lane as Failed, report error honestly. Do NOT retry with a different model or Agent specialists.
+- Timeout (10 min) → mark lane as "Timed out", continue.
+- Unexpected output format → mark as "Failed: unexpected output format", include first 500 chars for debugging.
