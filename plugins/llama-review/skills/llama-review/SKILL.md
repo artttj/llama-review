@@ -12,8 +12,13 @@ You orchestrate parallel specialist reviewers through Ollama, each running on a 
 **Every review lane MUST dispatch via `ollama run`. This is the ONLY valid dispatch method. The command is:**
 
 ```
-ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null
+TERM=dumb NO_COLOR=1 ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null | perl -pe 's/\x1b\[\??[0-9;]*[a-zA-Z]//g'
 ```
+
+Three-layer ANSI defense:
+1. `TERM=dumb` + `NO_COLOR=1` — tells CLI tools to disable terminal features (Ollama doesn't respect these yet, but PR [#14670](https://github.com/ollama/ollama/pull/14670) will add TTY detection)
+2. `2>/dev/null` — suppresses the Ollama progress spinner on stderr
+3. `perl -pe '...'` — strips any remaining ANSI escape codes from stdout (bracketed paste mode toggles, cursor show/hide, color codes)
 
 **NEVER use the Agent tool for review lanes.** Do NOT use built-in specialist types (typescript-reviewer, code-reviewer, security-reviewer, etc.). The entire value of this skill comes from different models with different strengths.
 
@@ -176,14 +181,14 @@ For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SING
 
 ```
 Bash({
-  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nollama run <model> --nowordwrap --hidethinking < \"$PROMPT_FILE\" 2>/dev/null",
+  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nTERM=dumb NO_COLOR=1 ollama run <model> --nowordwrap --hidethinking < \"$PROMPT_FILE\" 2>/dev/null | perl -pe 's/\\x1b\\[\\??[0-9;]*[a-zA-Z]//g'",
   run_in_background: true,
   timeout: 600000,
   description: "<Lane> review via <model>"
 })
 ```
 
-The `--nowordwrap` flag prevents line wrapping in model output. The `--hidethinking` flag suppresses internal reasoning blocks. The `2>/dev/null` suppresses spinner/progress output on stderr. Together these produce clean, parseable output.
+The `--nowordwrap` flag prevents line wrapping in model output. The `--hidethinking` flag suppresses internal reasoning blocks. The `2>/dev/null` suppresses the Ollama progress spinner on stderr. The `TERM=dumb` and `NO_COLOR=1` prefix disables terminal features for future Ollama versions. The `perl` pipe strips any remaining ANSI escape codes (bracketed paste mode, cursor show/hide, color codes) from stdout.
 
 Map each task_id to its lane name for result collection.
 
@@ -204,7 +209,7 @@ Error handling:
 - **Exit code 0 but unexpected format:** Strip thinking/reasoning blocks and ANSI escape codes first, then check format.
 
 Strip output before parsing (apply in this order):
-1. **ANSI escape codes:** Remove any terminal escape sequences (spinner artifacts, color codes). Pattern: `\x1b\[[0-9;]*[a-zA-Z]` and similar CSI sequences.
+1. **ANSI escape codes:** Remove any terminal escape sequences (spinner artifacts, bracketed paste mode, cursor show/hide, color codes). Pattern: `\x1b\[\??[0-9;]*[a-zA-Z]` — matches both standard CSI and private mode sequences (the `?` after `[` handles `\x1b[?2026h`, `\x1b[?25l`, etc.).
 2. **Thinking/reasoning blocks** from all models:
    - Claude: angle-bracket thinking tags (anthropic thinking blocks)
    - Qwen, DeepSeek: angle-bracket think tags (standard reasoning format)
@@ -340,7 +345,7 @@ If `$ARGUMENTS` contains `--jira`:
 7. Honor the effort level. Pass the correct behavioral description.
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
-10. Dispatch via `ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
+10. Dispatch via `TERM=dumb NO_COLOR=1 ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null | perl -pe 's/\x1b\[\??[0-9;]*[a-zA-Z]//g'`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
 11. Integrity check: the Models Used table Dispatch column MUST say "ollama run". If any lane shows "Agent" or a specialist type name, the review is invalid. All Agent specialists run on the same model (this session's model), so using them means all lanes produce the same perspective — this defeats the multi-model purpose entirely.
 12. Strip ANSI escape codes, then thinking/reasoning blocks, then leading whitespace before parsing output.
 13. Classify failures: timeout, model-not-found, network, unexpected-output.

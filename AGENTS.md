@@ -4,7 +4,7 @@
 
 Multi-model code review conductor. Dispatches parallel specialist reviewers through Ollama, merges findings into a prioritized report.
 
-**Dispatch rule:** Every review lane MUST run via `ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column MUST say "ollama run" — if it says "Agent" or a specialist type name, the review is invalid.
+**Dispatch rule:** Every review lane MUST run via `TERM=dumb NO_COLOR=1 ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null | perl -pe 's/\x1b\[\??[0-9;]*[a-zA-Z]//g'`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane on the wrong model is worse than no lane at all. The Models Used table Dispatch column MUST say "ollama run" — if it says "Agent" or a specialist type name, the review is invalid.
 
 **Cloud model rule:** Do NOT run `ollama list` to check for cloud models. Cloud models (`:cloud` suffix) do not appear in `ollama list`. This is the #1 failure mode — running `ollama list`, seeing only local models, and falling back to Agent specialists. Trust the `:cloud` suffix and dispatch directly with `ollama run`.
 
