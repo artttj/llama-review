@@ -129,11 +129,30 @@ For example, `.llama-review/prompts/security.md` replaces the built-in security 
 
 Each lane only gets files matching its patterns. Security and simplify always get the full diff. Empty lanes are skipped. Files are auto-assigned by the script — no manual categorization needed.
 
-## Local models
+## Model setup
 
-Pass `--local` to use local Ollama models instead of cloud. The script strips `:cloud` suffixes and dispatches directly — if a local model isn't available, the lane fails and reports the error.
+### Cloud models (default)
 
-**Note:** Cloud models (with `:cloud` suffix) are dispatched via the Ollama HTTP API and do NOT appear in `ollama list` output. `ollama list` only shows locally pulled models. Cloud model availability is validated at dispatch time — if a cloud model is unavailable, the lane fails and reports the error honestly.
+Models with the `:cloud` suffix are dispatched through the standard Ollama HTTP API (`/api/chat`). The suffix is a naming convention — there is no separate cloud endpoint or proxy. Both cloud and local models hit the same `OLLAMA_HOST`.
+
+This means cloud models only work if your Ollama server actually serves a model with that name. Plain `ollama serve` won't have them unless you've set up a proxy or custom model names. If a cloud model is unavailable, the lane fails and reports the error.
+
+To make cloud models work, point `OLLAMA_HOST` to an Ollama-compatible server that serves them:
+
+```bash
+OLLAMA_HOST=https://your-proxy.example.com /llama-review
+```
+
+Or run locally with `--local` instead.
+
+### Local models
+
+Pass `--local` to strip `:cloud` suffixes and dispatch to your local Ollama instance. If a local model isn't pulled, the lane fails and reports the error.
+
+```bash
+ollama pull qwen3:8b    # example
+/llama-review --local
+```
 
 Recommended local models:
 - `qwen3:8b`: fits in 8GB VRAM, good for quick reviews
