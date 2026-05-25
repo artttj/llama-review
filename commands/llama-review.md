@@ -35,25 +35,29 @@ $ARGUMENTS
 
 ## Default Models
 
-| Lane | Model | Strength |
-|------|-------|----------|
-| frontend | qwen3.5:cloud | Vision + thinking + tools for UI review |
-| backend | glm-5.1:cloud | Strongest code reasoning, 9.5/10 |
-| security | kimi-k2.6:cloud | 262K context, long reasoning for attack surfaces |
-| tests | deepseek-v4-flash:cloud | Fast structured analysis |
-| simplify | minimax-m2.7:cloud | Cheap pattern matching for dead code and over-engineering |
+| Lane | Model | Type | Strength |
+|------|-------|------|----------|
+| frontend | qwen3.5:cloud | cloud | Vision + thinking + tools for UI review |
+| backend | glm-5.1:cloud | cloud | Strongest code reasoning, 9.5/10 |
+| security | kimi-k2.6:cloud | cloud | 262K context, long reasoning for attack surfaces |
+| tests | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
+| simplify | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
-Override with `.llama-review.yml` in your project root.
+Cloud models (with `:cloud` suffix) are dispatched via `ollama launch`. They do NOT appear in `ollama list` — that command only shows locally pulled models. Use `--local` to switch to local models.
+
+Override with `.llama-review.yml` in your project root. If no config file exists, llama-review offers to create one from defaults on first run.
 
 ## Behavior
 
 1. Runs `git diff <target>...HEAD` to get changed files
 2. Loads `.llama-review.yml` config if present, falls back to defaults
-3. Groups files into review lanes by file pattern
-4. Dispatches parallel `ollama launch claude --model <model>` calls per lane
-5. Collects, merges, deduplicates, and ranks findings
-6. Outputs a report with Critical / Needs Attention / Noted tiers
-7. Suggests concrete next steps with subagent commands to fix findings
+3. Auto-creates `.llama-review.yml` from defaults if missing (asks first)
+4. Prints a dispatch plan showing which model runs which lane
+5. Groups files into review lanes by file pattern
+6. Dispatches parallel `ollama launch claude --model <model>` calls per lane
+7. Collects, merges, deduplicates, and ranks findings
+8. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers
+9. Suggests concrete next steps with subagent commands to fix findings
 
 ## Requirements
 

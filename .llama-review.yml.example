@@ -1,7 +1,12 @@
-# Llama Review — Configuration Example
-# Copy this file to your project root as .llama-review.yml and customize.
+# Llama Review — Configuration
 #
-# Use :cloud suffix for Ollama cloud models.
+# This file is auto-created on first run if missing.
+# Edit to customize models, effort, or add custom lanes.
+#
+# Cloud models (:cloud suffix) are dispatched via `ollama launch`.
+# They do NOT appear in `ollama list` — that only shows locally pulled models.
+# Use --local flag to switch to local models, or set local: true below.
+#
 # Set a lane to false to disable it.
 models:
   frontend: "qwen3.5:cloud"
@@ -16,7 +21,7 @@ effort:
   normal: 32000
   deep: 64000
 
-# Force local models only (no :cloud suffix).
+# Force local models only (strips :cloud suffix from models).
 # When true, models are resolved from `ollama list` output.
 # Recommended local models:
 #   qwen3:8b — fits in 8GB VRAM, good for quick reviews

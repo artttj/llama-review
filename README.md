@@ -40,7 +40,7 @@ Then run:
 /llama-review
 ```
 
-Requires the `ollama` CLI on PATH.
+Requires the `ollama` CLI on PATH. On first run without a config file, llama-review offers to create `.llama-review.yml` from defaults.
 
 ## Usage
 
@@ -53,7 +53,7 @@ Requires the `ollama` CLI on PATH.
 /llama-review --jira                                # append a Jira comment block
 ```
 
-The skill detects changed files with `git diff`, groups them into review lanes by file pattern, dispatches parallel `ollama launch claude --model <model>` calls, then merges and ranks the findings.
+The skill detects changed files with `git diff`, groups them into review lanes by file pattern, dispatches parallel `ollama launch claude --model <model>` calls, then merges and ranks the findings. Before dispatching, it prints a plan showing which model runs which lane.
 
 ## Configuration
 
@@ -95,7 +95,9 @@ Each lane only gets files matching its patterns. Security and simplify always ge
 
 ## Local models
 
-Pass `--local` to use local Ollama models instead of cloud. The skill strips `:cloud` suffixes and verifies each model is available via `ollama list`. Missing models are skipped with a warning.
+Pass `--local` to use local Ollama models instead of cloud. The skill strips `:cloud` suffixes and verifies each local model is available via `ollama list`. Missing models are skipped with a warning.
+
+**Note:** Cloud models (with `:cloud` suffix) are dispatched via `ollama launch` and do NOT appear in `ollama list` output. `ollama list` only shows locally pulled models. Cloud model availability is validated at dispatch time — if a cloud model is unavailable, the lane fails and reports the error honestly.
 
 Recommended local models:
 - `qwen3:8b`: fits in 8GB VRAM, good for quick reviews
