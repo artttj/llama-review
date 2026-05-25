@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import http from 'node:http'
@@ -534,7 +534,7 @@ function parseTextFindings(text, lane) {
   if (findings.length === 0) {
     const lines = text.split('\n')
     for (const line of lines) {
-      const m = line.match(/[-*]\s+`?([a-zA-Z0-9_/.-]+\.[a-zA-Z]+)`?\s*:(\d+)/)
+      const m = line.match(/^[-*]\s+`?([a-zA-Z0-9_/.-]+\.[a-zA-Z]+)`?\s*:(\d+)/)
       if (m) {
         findings.push({ severity: 'MEDIUM', file: m[1], line: parseInt(m[2], 10), code: '', issue: line.trim(), confidence: 'low', fix: '', lane })
       }
@@ -580,8 +580,7 @@ function rankFindings(findings) {
 
 function validateFinding(f) {
   return f.file && f.line > 0 && f.issue && f.issue.length > 10 &&
-    !f.issue.match(/^(consider|could|might|should|maybe|perhaps)/i) &&
-    f.file.includes('.')
+    !f.issue.match(/^(consider|could|might|should|maybe|perhaps)/i)
 }
 
 function detectTestCommands(files) {
