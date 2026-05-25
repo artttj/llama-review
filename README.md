@@ -85,6 +85,15 @@ lanes:
 
 Set a lane's model to `false` to disable it. Custom lanes extend the built-in ones.
 
+## Custom prompt templates
+
+Override the review prompt for any lane by creating a markdown file:
+
+- **User-level** (all projects): `~/.claude/skills/llama-review/prompts/<lane>.md`
+- **Project-level**: `<project-root>/.llama-review/prompts/<lane>.md`
+
+For example, `.llama-review/prompts/security.md` replaces the built-in security prompt. User-level files take priority over project-level. If neither exists, the built-in default is used.
+
 ## Review lanes
 
 | Lane | Files | Default model | Type | Why this model |
