@@ -9,11 +9,17 @@ You orchestrate parallel specialist reviewers through Ollama, each running on a 
 
 ## STOP — READ BEFORE PROCEEDING
 
-**You MUST use Ollama models via `ollama launch` (cloud) or `ollama run` (local). NEVER substitute built-in Agent specialist types (typescript-reviewer, code-reviewer, security-reviewer, etc.). The entire value of this skill comes from different models with different strengths.**
+**Every review lane MUST dispatch via `ollama run`. This is the ONLY valid dispatch method. The command is:**
 
-**DO NOT run `ollama list` to check for cloud models.** The `ollama list` command only shows locally pulled models. Cloud models (those with `:cloud` suffix) do NOT appear in `ollama list`. Running `ollama list` and concluding "only gemma3:4b available, I'll use Agent specialists instead" is the #1 failure mode. Do not do this.
+```
+ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null
+```
 
-**Default mode is cloud.** Unless `--local` was passed, all models have `:cloud` suffix and are dispatched via `ollama launch claude --model <model>`. Trust the `:cloud` suffix and dispatch directly. If a cloud model is unavailable, the `ollama launch` call itself will fail — handle that in Step 8. Do NOT pre-check with `ollama list`.
+**NEVER use the Agent tool for review lanes.** Do NOT use built-in specialist types (typescript-reviewer, code-reviewer, security-reviewer, etc.). The entire value of this skill comes from different models with different strengths.
+
+**NEVER run `ollama list` to check for cloud models.** The `ollama list` command only shows locally pulled models. Cloud models (those with `:cloud` suffix) do NOT appear in `ollama list`. Running `ollama list` and concluding "only local models available, I'll use Agent specialists instead" is the #1 failure mode. Do not do this.
+
+**Cloud models work with the same `ollama run` command.** The `:cloud` suffix is part of the model name. `ollama run qwen3.5:cloud` works just like `ollama run gemma3:4b`. No special handling needed. Dispatch directly. If a model is unavailable, the `ollama run` call will fail — handle that in Step 8.
 
 ## Argument Parsing
 
@@ -37,13 +43,7 @@ which ollama || echo "MISSING"
 
 If ollama is missing, stop and report: "ollama CLI not found on PATH. Install it first: https://ollama.com"
 
-**CRITICAL: Do NOT run `ollama list` in cloud mode.** Only run `ollama list` when `--local` was explicitly passed. In cloud mode, verify `ollama launch` works instead:
-
-```bash
-ollama launch --help >/dev/null 2>&1 && echo "LAUNCH_OK" || echo "LAUNCH_MISSING"
-```
-
-If `LAUNCH_MISSING`, report: "ollama launch is not available. Update ollama to a version that supports cloud models."
+**CRITICAL: Do NOT run `ollama list` in cloud mode.** Only run `ollama list` when `--local` was explicitly passed, to verify local model availability. In cloud mode, skip this check entirely — cloud models do not appear in `ollama list` but work fine with `ollama run`.
 
 Parse `$ARGUMENTS` for `target=<ref>`. Default: `origin/main`.
 
@@ -76,7 +76,7 @@ If not found, use built-in defaults:
 - effort: `normal` (32000 tokens)
 - local: `false`
 
-**Cloud model dispatch (default):** Models with `:cloud` suffix are dispatched via `ollama launch claude --model <model>`. They do NOT appear in `ollama list`. Do NOT run `ollama list` to check for them. Trust the `:cloud` suffix and dispatch directly. If a cloud model is unavailable, the `ollama launch` call will fail — handle that in Step 8. Do NOT fall back to built-in Agent specialists on failure.
+**All models dispatch via `ollama run`.** Cloud models (with `:cloud` suffix) and local models use the exact same command. Cloud models do NOT appear in `ollama list` but work with `ollama run`. Do NOT run `ollama list` to verify cloud models. Trust the model name and dispatch directly. If a model is unavailable, the `ollama run` call will fail — handle that in Step 8. Do NOT fall back to built-in Agent specialists on failure.
 
 If `--local` was passed, strip `:cloud` suffixes and verify each model via `ollama list`. Skip lanes with missing models, warn with the model name, and suggest `ollama pull <model>`.
 
@@ -159,35 +159,26 @@ For each active lane:
 
 ### Step 7: Dispatch Parallel Reviewers
 
-**REMINDER: You MUST dispatch via `ollama launch` (cloud) or `ollama run` (local). Do NOT use the Agent tool. Do NOT use built-in specialist types like typescript-reviewer, code-reviewer, etc. Every lane is an `ollama launch` Bash call. No exceptions.**
+**REMINDER: You MUST dispatch via `ollama run`. Do NOT use the Agent tool. Do NOT use built-in specialist types like typescript-reviewer, code-reviewer, etc. Every lane is a `ollama run` Bash call. No exceptions.**
 
 For EACH active lane, dispatch a background Bash call. Issue ALL calls in a SINGLE message.
 
-**For cloud models (default):**
+**For ALL models (cloud and local use the same command):**
 
 ```
 Bash({
-  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nollama launch claude --model <model> < \"$PROMPT_FILE\"",
+  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nollama run <model> --nowordwrap --hidethinking < \"$PROMPT_FILE\" 2>/dev/null",
   run_in_background: true,
   timeout: 600000,
   description: "<Lane> review via <model>"
 })
 ```
 
-**For local models (`--local`):**
-
-```
-Bash({
-  command: "PROMPT_FILE=$(mktemp) && trap 'rm -f \"$PROMPT_FILE\"' EXIT && cat > \"$PROMPT_FILE\" <<'LLAMA_EOF'\n<prompt content with diff appended>\nLLAMA_EOF\nollama run <model> < \"$PROMPT_FILE\"",
-  run_in_background: true,
-  timeout: 600000,
-  description: "<Lane> review via <model> (local)"
-})
-```
+The `--nowordwrap` flag prevents line wrapping in model output. The `--hidethinking` flag suppresses internal reasoning blocks. The `2>/dev/null` suppresses spinner/progress output on stderr. Together these produce clean, parseable output.
 
 Map each task_id to its lane name for result collection.
 
-**Fallback behavior:** If `ollama launch` fails for a cloud model, mark that lane as failed in Step 8. Do NOT substitute a different model. Do NOT fall back to built-in Agent specialists. Do NOT use the Agent tool. Report the failure honestly with the error output. A failed lane is better than a lane that ran on the wrong model.
+**Fallback behavior:** If `ollama run` fails for a model, mark that lane as failed in Step 8. Do NOT substitute a different model. Do NOT fall back to built-in Agent specialists. Do NOT use the Agent tool. Report the failure honestly with the error output. A failed lane is better than a lane that ran on the wrong model.
 
 ### Step 8: Collect Results
 
@@ -201,15 +192,17 @@ If a task times out after 10 minutes, mark that lane as "Timed out" and continue
 
 Error handling:
 - **Non-zero exit code:** Mark as "Failed" with stderr as the reason. Classify: `model not found` vs `network error` vs `other`.
-- **Exit code 0 but unexpected format:** Strip thinking/reasoning blocks first, then check format.
+- **Exit code 0 but unexpected format:** Strip thinking/reasoning blocks and ANSI escape codes first, then check format.
 
-Strip thinking/reasoning blocks from all models before parsing. Known formats:
-- Claude: angle-bracket thinking tags (anthropic thinking blocks)
-- Qwen, DeepSeek: angle-bracket think tags (standard reasoning format)
-- GLM: `<<reasoning>>...<</reasoning>>`
-- Kimi: `<thought>...</thought>`
-- MiniMax: Chinese bracket thinking markers
-- Strip any leading whitespace and BOM characters after removing thinking blocks.
+Strip output before parsing (apply in this order):
+1. **ANSI escape codes:** Remove any terminal escape sequences (spinner artifacts, color codes). Pattern: `\x1b\[[0-9;]*[a-zA-Z]` and similar CSI sequences.
+2. **Thinking/reasoning blocks** from all models:
+   - Claude: angle-bracket thinking tags (anthropic thinking blocks)
+   - Qwen, DeepSeek: angle-bracket think tags (standard reasoning format)
+   - GLM: `<<reasoning>>...<</reasoning>>`
+   - Kimi: `<thought>...</thought>`
+   - MiniMax: Chinese bracket thinking markers
+3. **Leading whitespace and BOM characters.**
 
 After stripping, check if output starts with `FILE:` or `NO_ISSUES`. If not, mark as "Failed: unexpected output format" and include the first 500 characters for debugging.
 
@@ -332,7 +325,7 @@ If `$ARGUMENTS` contains `--jira`:
 7. Honor the effort level. Pass the correct behavioral description.
 8. Check pre-flight. Missing ollama or no files → clear error, not cryptic failure.
 9. Merge by root cause, not just file:line.
-10. Use Ollama models. Always dispatch via `ollama launch` (cloud) or `ollama run` (local). Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
-11. Strip all thinking/reasoning blocks before parsing output (Claude, Qwen, DeepSeek, GLM, Kimi, MiniMax formats).
+10. Dispatch via `ollama run <model> --nowordwrap --hidethinking < <prompt-file> 2>/dev/null`. Same command for cloud and local models. Never substitute built-in Agent specialist types. A failed lane is honest. A lane that ran on the wrong model is worse than no lane at all.
+11. Strip ANSI escape codes, then thinking/reasoning blocks, then leading whitespace before parsing output.
 12. Classify failures: timeout, model-not-found, network, unexpected-output.
 13. Do NOT run `ollama list` in cloud mode. Cloud models do not appear in `ollama list`. Running `ollama list` and then substituting Agent specialists is the #1 failure mode. Only use `ollama list` when `--local` was passed.

@@ -37,7 +37,7 @@ $ARGUMENTS
 | tests | deepseek-v4-flash:cloud | cloud | Fast structured analysis |
 | simplify | minimax-m2.7:cloud | cloud | Cheap pattern matching for dead code and over-engineering |
 
-Cloud models (with `:cloud` suffix) are dispatched via `ollama launch`. They do NOT appear in `ollama list` — **do not run `ollama list` to check for cloud models.** Use `--local` to switch to local models.
+Cloud and local models both dispatch via `ollama run`. Cloud models (with `:cloud` suffix) do NOT appear in `ollama list` — **do not run `ollama list` to check for cloud models.** Use `--local` to switch to local models.
 
 ## Flags
 
@@ -57,7 +57,7 @@ Cloud models (with `:cloud` suffix) are dispatched via `ollama launch`. They do 
 3. Auto-creates `.llama-review.yml` from defaults if missing (asks first)
 4. Prints a dispatch plan showing which model runs which lane
 5. Groups files into review lanes by file pattern
-6. Dispatches parallel `ollama launch claude --model <model>` calls per lane
+6. Dispatches parallel `ollama run <model> --nowordwrap --hidethinking` calls per lane
 7. Collects, merges, deduplicates, and ranks findings
 8. Outputs a report with Models Used table, Critical / Needs Attention / Noted tiers
 9. Suggests concrete next steps with subagent commands to fix findings

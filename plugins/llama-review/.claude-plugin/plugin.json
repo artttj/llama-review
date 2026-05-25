@@ -1,6 +1,6 @@
 {
   "name": "llama-review",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "description": "Run parallel specialist code reviews through Ollama models, each assigned to the domain they're strongest at. Merges findings into one prioritized report.",
   "author": {
     "name": "artttj",
