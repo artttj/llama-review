@@ -140,18 +140,6 @@ Recommended local models:
 - `deepseek-r1:14b`: reasoning-focused, good for security lanes
 - `devstral:24b`: agentic coding, good for backend lanes
 
-## Maintaining
-
-After editing the skill, sync these files in order:
-
-1. `plugins/llama-review/skills/llama-review/SKILL.md` — canonical skill source
-2. `SKILL.md` (root) — copy from plugin version
-3. `AGENTS.md` — dispatch rules and failure handling (keep timeouts and command template in sync)
-4. `commands/llama-review.md`, `plugins/llama-review/commands/llama-review.md`, `.opencode/commands/llama-review.md` — command files (keep all three identical)
-5. `llama-review.mjs`, `plugins/llama-review/skills/llama-review/llama-review.mjs` — keep both copies identical
-
-Version numbers live in two places: `plugins/llama-review/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Bump both together.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
