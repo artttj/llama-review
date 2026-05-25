@@ -1,0 +1,34 @@
+# Llama Review — Configuration Example
+# Copy this file to your project root as .llama-review.yml and customize.
+#
+# Use :cloud suffix for Ollama cloud models.
+# Set a lane to false to disable it.
+models:
+  frontend: "qwen3.5:cloud"
+  backend: "glm-5.1:cloud"
+  security: "kimi-k2.6:cloud"
+  tests: "deepseek-v4-flash:cloud"
+  simplify: "minimax-m2.7:cloud"
+
+# Token budgets per effort level.
+effort:
+  quick: 8000
+  normal: 32000
+  deep: 64000
+
+# Force local models only (no :cloud suffix).
+# When true, models are resolved from `ollama list` output.
+# Recommended local models:
+#   qwen3:8b — fits in 8GB VRAM, good for quick reviews
+#   deepseek-r1:14b — reasoning-focused, good for security
+#   devstral:24b — agentic coding, good for backend
+local: false
+
+# Custom review lanes extend the built-in defaults.
+# Built-in lanes: frontend, backend, security, tests, simplify.
+# To disable a built-in lane, set its model to false above.
+lanes: {}
+#  magento:
+#    files: "app/code/**, etc/**/*.xml, Plugin/**, Observer/**"
+#    focus: "DI mistakes, plugin sort order, cache scope config, setup patches"
+#    model: "kimi-k2.6:cloud"
