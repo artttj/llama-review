@@ -37,11 +37,32 @@ const EXCLUDE_FROM_BACKEND = [
 
 const EFFORT_TOKENS = { quick: 8000, normal: 32000, deep: 64000 }
 
+const DIFF_LIMIT_CHARS = { quick: 80000, normal: 180000, deep: 360000 }
+
 const EFFORT_BEHAVIOR = {
   quick: 'QUICK SCAN: Flag only the most obvious issues. Skip deep analysis. Aim for 0-3 findings max.',
   normal: 'THOROUGH REVIEW: Examine every changed line. Check for edge cases, regressions, and correctness.',
   deep: 'EXHAUSTIVE ANALYSIS: Trace every code path. Consider interactions with unchanged code. Flag anything suspicious, even at low confidence.'
 }
+
+const OUTPUT_SCHEMA = `Return ONLY valid JSON. Do not wrap it in Markdown. If there are no actionable issues, return {"findings":[]}.
+
+Use this shape:
+{
+  "findings": [
+    {
+      "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+      "file": "path/from/diff",
+      "line": 123,
+      "code": "changed code or concise snippet",
+      "issue": "what is broken and why it matters",
+      "confidence": "high|medium|low",
+      "fix": "specific fix"
+    }
+  ]
+}
+
+Report only issues that are actionable from this diff. Prefer zero findings over speculative advice.`
 
 const DEFAULT_MODELS = {
   frontend: 'qwen3.5:cloud',
@@ -57,6 +78,14 @@ const DEFAULT_LANE_CONFIG = {
   security: { timeout: 180, retries: 1, thinking: true },
   tests: { timeout: 120, retries: 1 },
   simplify: { timeout: 120, retries: 0 }
+}
+
+const LANE_FOCUS = {
+  frontend: 'Focus areas: UI state regressions, accessibility, responsive layout, hydration, client-side data flow, unsafe DOM updates.',
+  backend: 'Focus areas: code correctness, edge cases, regressions, race conditions, resource leaks, data corruption, API contract breaks.',
+  security: 'Focus areas: injection, auth bypass, data exposure, path traversal, unsafe deserialization, missing CSRF, cryptographic weaknesses.',
+  tests: 'Focus areas: missing test coverage, broken assertions, untested edge cases, fixtures that do not exercise the changed behavior, flaky or overly broad tests.',
+  simplify: 'Focus areas: dead code, duplicate logic, unnecessary abstraction, over-engineering, complex control flow that can be reduced safely.'
 }
 
 function parseArgs(argv) {
@@ -339,7 +368,7 @@ function applyConsolidation(assignments, totalFiles) {
     const folded = active.slice(1)
     return {
       lanes: { [primary[0]]: { files: primary[1], folded: folded.map(f => f[0]) } },
-      skipped: folded.map(f => f[0]),
+      skipped: [],
       consolidated: true
     }
   }
@@ -356,7 +385,7 @@ function applyConsolidation(assignments, totalFiles) {
       const other = primary.find(p => p[0] !== 'security')
       if (other) result[other[0]].folded.push('security')
     }
-    return { lanes: result, skipped: folded.map(f => f[0]), consolidated: true }
+    return { lanes: result, skipped: [], consolidated: true }
   }
 
   const result = {}
@@ -381,7 +410,8 @@ function loadPromptTemplate(lane, skillDir) {
 function buildPrompt(lane, effort, laneDiff, template, foldedConcerns, customFocus) {
   let prompt = template || `You are a ${lane} specialist reviewing a unified diff.\n\n`
   if (!template) {
-    prompt += 'Focus areas: code correctness, edge cases, regressions.\n\n'
+    prompt += `${LANE_FOCUS[lane] || LANE_FOCUS.backend}\n\n`
+    prompt += `${EFFORT_BEHAVIOR[effort]}\n`
   }
   prompt = prompt.replace(/<EFFORT>/g, EFFORT_BEHAVIOR[effort])
   if (customFocus) {
@@ -393,6 +423,7 @@ function buildPrompt(lane, effort, laneDiff, template, foldedConcerns, customFoc
   if (lane === 'security' && !customFocus) {
     prompt += '\nThe backend lane is also reviewing this diff. Focus exclusively on security vulnerabilities — injection, auth bypass, data exposure, path traversal, unsafe deserialization, missing CSRF, and cryptographic weaknesses. Skip bugs, performance issues, code style, and general code quality concerns that the backend lane will catch. If no security-specific issues exist, return empty findings even if you see non-security problems.\n'
   }
+  prompt += `\n${OUTPUT_SCHEMA}\n`
   prompt += '\n---\nDIFF:\n' + laneDiff
   return prompt
 }
@@ -589,7 +620,13 @@ function detectTestCommands(files) {
   if (has('.php')) cmds.push('php vendor/bin/phpunit --filter=' + files.filter(f => f.includes('test') || f.includes('Test')).join(','))
   if (has('.ts') || has('.tsx') || has('.js') || has('.jsx')) cmds.push('npx jest --findRelatedTests ' + files.filter(f => f.endsWith('.ts') || f.endsWith('.tsx') || f.endsWith('.js')).join(' '))
   if (has('.py')) cmds.push('python -m pytest ' + files.filter(f => f.includes('test') || f.includes('spec')).join(' ') + ' -v')
-  if (has('.go')) cmds.push('go test ./... -run ' + files.filter(f => f.includes('test')).map(f => dirname(f)).join('|'))
+  if (has('.go')) {
+    const goFiles = files.filter(f => f.endsWith('.go'))
+    const testDirs = goFiles.filter(f => f.includes('test')).map(f => dirname(f))
+    const dirs = testDirs.length > 0 ? testDirs : goFiles.map(f => dirname(f))
+    const pkgs = [...new Set(dirs)].sort().map(d => d === '.' ? './' : `./${d}`)
+    cmds.push('go test ' + pkgs.join(' '))
+  }
   if (has('.rs')) cmds.push('cargo test -p ' + [...new Set(files.filter(f => f.endsWith('.rs')).map(f => dirname(f).split('/')[0]))].join(','))
   return cmds.filter(c => !c.endsWith('=') && c.trim().length > 5)
 }
@@ -617,13 +654,15 @@ function generateReport(results, rankedFindings, config, assignments, skipped, c
   }
   lines.push('')
 
-  if (consolidated || skipped.length > 0) {
-    lines.push('## Consolidated')
-    for (const [lane, info] of Object.entries(assignments)) {
-      if (info.folded && info.folded.length > 0) {
-        lines.push(`- ${info.folded.join(', ')} folded into ${lane}`)
-      }
+  const foldedLines = []
+  for (const [lane, info] of Object.entries(assignments)) {
+    if (info.folded && info.folded.length > 0) {
+      foldedLines.push(`- ${info.folded.join(', ')} folded into ${lane}`)
     }
+  }
+  if (foldedLines.length > 0 || skipped.length > 0) {
+    lines.push('## Consolidated')
+    lines.push(...foldedLines)
     for (const s of skipped) {
       lines.push(`- Skipped: ${s} (no matching files)`)
     }
@@ -687,7 +726,11 @@ function generateReport(results, rankedFindings, config, assignments, skipped, c
     lines.push('## PR Summary')
     const critFiles = [...new Set(critical.map(f => f.file))]
     const attFiles = [...new Set(needsAttention.map(f => f.file))]
-    lines.push(`Review found ${summaryParts.join(' and ')} across ${results.length} lanes. Critical findings in ${critFiles.join(', ')}. Attention items in ${attFiles.join(', ')}. Address critical items before merge.`)
+    const details = []
+    if (critFiles.length > 0) details.push(`Critical findings in ${critFiles.join(', ')}.`)
+    if (attFiles.length > 0) details.push(`Attention items in ${attFiles.join(', ')}.`)
+    if (critical.length > 0) details.push('Address critical items before merge.')
+    lines.push(`Review found ${summaryParts.join(' and ')} across ${results.length} lanes. ${details.join(' ')}`.trim())
   }
   lines.push('')
 
@@ -786,6 +829,10 @@ async function main() {
     process.exit(0)
   }
 
+  const activeAssignments = {}
+  for (const lane of activeLanes) activeAssignments[lane] = assignments[lane]
+  const hasActiveConsolidation = activeLanes.some(l => assignments[l]?.folded?.length > 0)
+
   console.log(`\nDispatch plan (${activeLanes.length} lanes):`)
   console.log('')
   console.log('  Lane       Model                  Type    Effort   Files')
@@ -799,7 +846,7 @@ async function main() {
   if (skipped.length > 0) {
     console.log(`\n  Skipped: ${skipped.join(', ')} (no matching files)`)
   }
-  if (consolidated) {
+  if (hasActiveConsolidation) {
     console.log('  Consolidated: small diff — reduced lane count')
   }
   console.log('')
@@ -809,7 +856,8 @@ async function main() {
     const model = config.models[lane] || config.customLanes[lane]?.model || 'unknown'
     const laneFiles = assignments[lane]?.files || changedFiles
     const laneDiff = filterDiffForLane(fullDiff, laneFiles)
-    const { diff: truncatedDiff, dropped } = truncateDiff(laneDiff, 20000)
+    const diffLimit = DIFF_LIMIT_CHARS[args.effort] || DIFF_LIMIT_CHARS.normal
+    const { diff: truncatedDiff, dropped } = truncateDiff(laneDiff, diffLimit)
     const template = loadPromptTemplate(lane, SCRIPT_DIR)
 
     let foldedConcerns = []
@@ -826,7 +874,7 @@ async function main() {
     const baseTokens = config.effort[args.effort] || EFFORT_TOKENS[args.effort]
     const numPredict = scaleNumPredict(truncatedDiff.length, baseTokens, isThinking)
 
-    dispatches.push({ lane, model, prompt, numPredict, laneConfig: { ...laneCfg, ...config.customLanes[lane] }, dropped, diffLen: truncatedDiff.length })
+    dispatches.push({ lane, model, prompt, numPredict, laneConfig: { ...laneCfg, ...config.customLanes[lane] }, dropped, diffLen: truncatedDiff.length, effort: args.effort })
   }
 
   console.log('Dispatching lanes...')
@@ -874,7 +922,7 @@ async function main() {
   const merged = mergeFindings(validFindings)
   const ranked = rankFindings(merged)
 
-  const report = generateReport(results, ranked, config, assignments, skipped, consolidated, diffSize, changedFiles.length)
+  const report = generateReport(results, ranked, config, activeAssignments, skipped, hasActiveConsolidation, diffSize, changedFiles.length)
 
   if (args.json) {
     const jsonOutput = {
