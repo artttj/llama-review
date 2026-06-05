@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE) ![Claude Code](https://img.shields.io/badge/Claude%20Code-D97757?style=for-the-badge&logo=anthropic&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white)
 
-🫟 **[Live demo → sonto.space/llama-review](https://sonto.space/llama-review/)**
-
 ![Llama Review](llama_review_header.png)
+
+🫟 **[Live demo → sonto.space/llama-review](https://sonto.space/llama-review/)**
 
 Different models have different strengths. Llama Review assigns the right model to the right task.
 
