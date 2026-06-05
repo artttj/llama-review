@@ -60,7 +60,7 @@ const DEFAULT_LANE_CONFIG = {
 }
 
 function parseArgs(argv) {
-  const args = { target: 'origin/main', effort: 'normal', lanes: [], local: false, jira: false, init: false, json: false }
+  const args = { target: 'origin/main', effort: 'normal', lanes: [], local: false, jira: false, init: false, json: false, strict: false }
   let i = 2
   while (i < argv.length) {
     const arg = argv[i]
@@ -68,6 +68,7 @@ function parseArgs(argv) {
     else if (arg === '--jira') { args.jira = true; i++ }
     else if (arg === '--init') { args.init = true; i++ }
     else if (arg === '--json') { args.json = true; i++ }
+    else if (arg === '--strict') { args.strict = true; i++ }
     else if (arg === '--effort' && i + 1 < argv.length) { args.effort = argv[++i]; i++ }
     else if (arg === '--target' && i + 1 < argv.length) { args.target = argv[++i]; i++ }
     else if (arg === '--lanes' && i + 1 < argv.length) { args.lanes = argv[++i].split(',').map(s => s.trim()); i++ }
@@ -578,6 +579,29 @@ function rankFindings(findings) {
   return { critical, needsAttention, noted }
 }
 
+// Single machine-readable verdict derived from the ranked counts.
+// BLOCK on any critical (exit 2). REVIEW when only attention items remain
+// (exit 0, advisory) — unless --strict, which blocks on those too. CLEAN otherwise.
+function computeVerdict(ranked, strict) {
+  const c = ranked.critical.length, a = ranked.needsAttention.length, n = ranked.noted.length
+  let status, exit
+  if (c > 0) { status = 'BLOCK'; exit = 2 }
+  else if (a > 0) { status = strict ? 'BLOCK' : 'REVIEW'; exit = strict ? 2 : 0 }
+  else { status = 'CLEAN'; exit = 0 }
+  const parts = []
+  if (c) parts.push(`${c} critical`)
+  if (a) parts.push(`${a} to review`)
+  if (n) parts.push(`${n} noted`)
+  return { status, exit, critical: c, needsAttention: a, noted: n, strict: !!strict, summary: parts.join(', ') || 'no actionable findings' }
+}
+
+function verdictBanner(v) {
+  const tail = v.status === 'BLOCK' ? 'fix before merge'
+    : v.status === 'REVIEW' ? 'review before merge'
+    : 'clear to merge'
+  return `## Verdict: ${v.status}\n${v.summary} · ${tail} (exit ${v.exit})\n`
+}
+
 function validateFinding(f) {
   return f.file && f.line > 0 && f.issue && f.issue.length > 10 &&
     !f.issue.match(/^(consider|could|might|should|maybe|perhaps)/i)
@@ -874,10 +898,12 @@ async function main() {
   const merged = mergeFindings(validFindings)
   const ranked = rankFindings(merged)
 
+  const verdict = computeVerdict(ranked, args.strict)
   const report = generateReport(results, ranked, config, assignments, skipped, consolidated, diffSize, changedFiles.length)
 
   if (args.json) {
     const jsonOutput = {
+      verdict,
       findings: { critical: ranked.critical, needsAttention: ranked.needsAttention, noted: ranked.noted },
       results: results.map(r => ({ lane: r.lane, model: r.model, success: r.success, findingCount: r.findingCount, error: r.error, duration: r.duration })),
       meta: { totalFiles: changedFiles.length, diffSize, effort: args.effort, lanes: activeLanes }
@@ -887,7 +913,7 @@ async function main() {
     console.error(`Results written to ${jsonPath}`)
   }
 
-  console.log('\n' + report)
+  console.log('\n' + verdictBanner(verdict) + '\n' + report)
 
   if (args.jira) {
     const total = ranked.critical.length + ranked.needsAttention.length
@@ -901,7 +927,7 @@ async function main() {
     }
   }
 
-  process.exit(ranked.critical.length > 0 ? 2 : 0)
+  process.exit(verdict.exit)
 }
 
 main().catch(e => {

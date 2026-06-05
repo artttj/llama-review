@@ -1,6 +1,6 @@
 ---
 description: Run parallel specialist code reviews through Ollama models, merged into one prioritized report
-argument-hint: "[last N commits | target=ref] [lanes=list] [--local] [--effort quick|normal|deep] [--jira]"
+argument-hint: "[last N commits | target=ref] [lanes=list] [--local] [--effort quick|normal|deep] [--strict] [--jira]"
 ---
 
 # Llama Review — Multi-Model Review Swarm
@@ -34,7 +34,10 @@ $ARGUMENTS
 | `--effort <level>` | Review depth: `quick`, `normal`, `deep` (default: `normal`) |
 | `--jira` | Append a Jira-ready comment block to output |
 | `--init` | Save default config to .llama-review.yml |
-| `--json` | Write structured findings to llama-review-results.json |
+| `--json` | Write structured findings (incl. `verdict`) to llama-review-results.json |
+| `--strict` | Block on needs-attention items too (REVIEW → BLOCK, exit 2). For CI gates. |
+
+Every run ends with a verdict — **BLOCK** (any critical, exit 2), **REVIEW** (attention items only, exit 0), or **CLEAN** (exit 0). `--strict` makes REVIEW block as well.
 
 ## Default Models
 

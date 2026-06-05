@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE) ![Claude Code](https://img.shields.io/badge/Claude%20Code-D97757?style=for-the-badge&logo=anthropic&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-000000?style=for-the-badge&logo=ollama&logoColor=white)
 
-![Llama Review](llama_review.png)
+![Llama Review](llama_review_header.png)
 
 Different models have different strengths. Llama Review assigns the right model to the right task.
 
@@ -28,6 +28,23 @@ Results merge, deduplicate, and rank into a single report.
 - **Next Steps**: concrete subagent commands to fix each finding
 
 Every finding has the file, line, what's broken, and how to fix it. No generic filler.
+
+## Verdict
+
+Every run ends with one verdict, derived from the ranked findings:
+
+| Verdict | When | Exit code |
+|---------|------|-----------|
+| **BLOCK** | any critical finding | `2` |
+| **REVIEW** | only needs-attention items | `0` |
+| **CLEAN** | nothing actionable | `0` |
+
+```
+## Verdict: BLOCK
+1 critical, 4 to review · fix before merge (exit 2)
+```
+
+Pass `--strict` to also block on needs-attention items (REVIEW becomes BLOCK, exit `2`) — useful as a CI gate. The verdict is included in `--json` output under the `verdict` key.
 
 ## Install
 
